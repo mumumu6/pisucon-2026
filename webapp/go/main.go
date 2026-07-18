@@ -780,7 +780,10 @@ func generateIsuGraphResponse(tx *sqlx.Tx, jiaIsuUUID string, graphDate time.Tim
 	var startTimeInThisHour time.Time
 	var condition IsuCondition
 
-	rows, err := tx.Queryx("SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = ? ORDER BY `timestamp` ASC", jiaIsuUUID)
+	rows, err := tx.Queryx(
+		"SELECT `timestamp`, `is_sitting`, `condition` FROM `isu_condition` WHERE `jia_isu_uuid` = ? ORDER BY `timestamp` ASC",
+		jiaIsuUUID,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("db error: %v", err)
 	}
@@ -1103,7 +1106,7 @@ func getTrend(c echo.Context) error {
 		for _, isu := range isuList {
 			conditions := []IsuCondition{}
 			err = db.Select(&conditions,
-				"SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = ? ORDER BY timestamp DESC",
+				"SELECT `timestamp`, `condition` FROM `isu_condition` WHERE `jia_isu_uuid` = ? ORDER BY timestamp DESC LIMIT 1",
 				isu.JIAIsuUUID,
 			)
 			if err != nil {
