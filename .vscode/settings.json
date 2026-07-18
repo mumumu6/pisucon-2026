@@ -1,0 +1,10 @@
+{
+  "debug.javascript.defaultRuntimeExecutable": {
+    "pwa-node": "/home/mumumu/.local/share/mise/shims/node"
+  },
+  "oxc.path.node": "/home/mumumu/.local/share/mise/shims/node",
+  "go.goroot": "/home/mumumu/.local/share/mise/installs/go/1.26.5",
+  "go.alternateTools": {
+    "go": "/home/mumumu/.local/share/mise/shims/go"
+  }
+}
