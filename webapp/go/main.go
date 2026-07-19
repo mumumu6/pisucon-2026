@@ -3,7 +3,10 @@ package main
 import (
 	"bytes"
 	"crypto/ecdsa"
+	"crypto/hmac"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,7 +22,6 @@ import (
 
 	"github.com/dgrijalva/jwt-go"
 	"github.com/go-sql-driver/mysql"
-	"github.com/gorilla/sessions"
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -46,7 +48,7 @@ const (
 
 var (
 	db                  *sqlx.DB
-	sessionStore        sessions.Store
+	sessionKey          []byte
 	mySQLConnectionData *MySQLConnectionEnv
 
 	jiaJWTSigningKey *ecdsa.PublicKey
@@ -67,7 +69,17 @@ var (
 		sync.RWMutex
 		values map[string]bool
 	}{values: make(map[string]bool)}
+
+	isuIconCache = struct {
+		sync.RWMutex
+		values map[string]isuIconCacheEntry
+	}{values: make(map[string]isuIconCacheEntry)}
 )
+
+type isuIconCacheEntry struct {
+	jiaUserID string
+	image     []byte
+}
 
 type Isu struct {
 	ID              int            `db:"id" json:"id"`
@@ -210,7 +222,7 @@ func (mc *MySQLConnectionEnv) ConnectDB() (*sqlx.DB, error) {
 }
 
 func init() {
-	sessionStore = sessions.NewCookieStore([]byte(getEnv("SESSION_KEY", "isucondition")))
+	sessionKey = []byte(getEnv("SESSION_KEY", "isucondition"))
 
 	key, err := ioutil.ReadFile(jiaJWTSigningKeyPath)
 	if err != nil {
@@ -276,28 +288,47 @@ func main() {
 	e.Logger.Fatal(e.Start(serverPort))
 }
 
-func getSession(r *http.Request) (*sessions.Session, error) {
-	session, err := sessionStore.Get(r, sessionName)
-	if err != nil {
-		return nil, err
-	}
-	return session, nil
+func sessionSignature(payload string) string {
+	mac := hmac.New(sha256.New, sessionKey)
+	_, _ = mac.Write([]byte(payload))
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func setSessionCookie(w http.ResponseWriter, jiaUserID string) {
+	payload := base64.RawURLEncoding.EncodeToString([]byte(jiaUserID))
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionName,
+		Value:    payload + "." + sessionSignature(payload),
+		Path:     "/",
+		HttpOnly: true,
+	})
+}
+
+func clearSessionCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+	})
 }
 
 func getUserIDFromSession(c echo.Context) (string, int, error) {
-	session, err := getSession(c.Request())
+	cookie, err := c.Cookie(sessionName)
 	if err != nil {
-		return "", http.StatusInternalServerError, fmt.Errorf("failed to get session: %v", err)
-	}
-	_jiaUserID, ok := session.Values["jia_user_id"]
-	if !ok {
 		return "", http.StatusUnauthorized, fmt.Errorf("no session")
 	}
 
-	jiaUserID, ok := _jiaUserID.(string)
-	if !ok || jiaUserID == "" {
+	parts := strings.Split(cookie.Value, ".")
+	if len(parts) != 2 || !hmac.Equal([]byte(parts[1]), []byte(sessionSignature(parts[0]))) {
 		return "", http.StatusUnauthorized, fmt.Errorf("invalid session")
 	}
+	jiaUserIDBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil || len(jiaUserIDBytes) == 0 {
+		return "", http.StatusUnauthorized, fmt.Errorf("invalid session")
+	}
+	jiaUserID := string(jiaUserIDBytes)
 
 	// The session is stored in a signed cookie and is created only after the
 	// user has been inserted.  There is no user-deletion/revocation operation,
@@ -337,6 +368,28 @@ func setCachedIsuExistence(jiaIsuUUID string, exists bool) {
 	isuExistenceCache.Unlock()
 }
 
+func clearIsuIconCache() {
+	isuIconCache.Lock()
+	isuIconCache.values = make(map[string]isuIconCacheEntry)
+	isuIconCache.Unlock()
+}
+
+func getCachedIsuIcon(jiaIsuUUID, jiaUserID string) ([]byte, bool) {
+	isuIconCache.RLock()
+	entry, ok := isuIconCache.values[jiaIsuUUID]
+	isuIconCache.RUnlock()
+	if !ok || entry.jiaUserID != jiaUserID {
+		return nil, false
+	}
+	return entry.image, true
+}
+
+func setCachedIsuIcon(jiaIsuUUID, jiaUserID string, image []byte) {
+	isuIconCache.Lock()
+	isuIconCache.values[jiaIsuUUID] = isuIconCacheEntry{jiaUserID: jiaUserID, image: image}
+	isuIconCache.Unlock()
+}
+
 // POST /initialize
 // サービスを初期化
 func postInitialize(c echo.Context) error {
@@ -355,6 +408,7 @@ func postInitialize(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	clearIsuExistenceCache()
+	clearIsuIconCache()
 
 	_, err = db.Exec(
 		"INSERT INTO `isu_association_config` (`name`, `url`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `url` = VALUES(`url`)",
@@ -412,18 +466,7 @@ func postAuthentication(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	session, err := getSession(c.Request())
-	if err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-
-	session.Values["jia_user_id"] = jiaUserID
-	err = session.Save(c.Request(), c.Response())
-	if err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
+	setSessionCookie(c.Response(), jiaUserID)
 
 	return c.NoContent(http.StatusOK)
 }
@@ -441,18 +484,7 @@ func postSignout(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	session, err := getSession(c.Request())
-	if err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-
-	session.Options = &sessions.Options{MaxAge: -1, Path: "/"}
-	err = session.Save(c.Request(), c.Response())
-	if err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
+	clearSessionCookie(c.Response())
 
 	return c.NoContent(http.StatusOK)
 }
@@ -663,6 +695,7 @@ func postIsu(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	setCachedIsuExistence(jiaIsuUUID, true)
+	setCachedIsuIcon(jiaIsuUUID, jiaUserID, image)
 
 	return c.JSON(http.StatusCreated, isu)
 }
@@ -713,6 +746,10 @@ func getIsuIcon(c echo.Context) error {
 
 	jiaIsuUUID := c.Param("jia_isu_uuid")
 
+	if image, ok := getCachedIsuIcon(jiaIsuUUID, jiaUserID); ok {
+		return c.Blob(http.StatusOK, "", image)
+	}
+
 	var image []byte
 	err = db.Get(&image, "SELECT `image` FROM `isu` WHERE `jia_user_id` = ? AND `jia_isu_uuid` = ?",
 		jiaUserID, jiaIsuUUID)
@@ -724,6 +761,7 @@ func getIsuIcon(c echo.Context) error {
 		c.Logger().Errorf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	setCachedIsuIcon(jiaIsuUUID, jiaUserID, image)
 
 	return c.Blob(http.StatusOK, "", image)
 }
