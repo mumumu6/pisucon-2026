@@ -130,11 +130,11 @@ make finish
 COMMIT待ちを減らすISUCON向けの `2` と `0` です。OSまたは電源の異常終了時には、直近およそ
 1秒の更新を失う可能性があります。
 
-### Goアプリのファイルディスクリプタ上限
+### Goアプリ・Nginxのファイルディスクリプタ上限
 
-`group_vars/all.yml` の `app_limit_nofile` を正とし、`make fleet-setup` で
-`isucondition.go.service` のsystemd drop-inへ反映します。既定値は `65535` です。
-設定変更時はsystemdの設定を再読み込みし、Goアプリを再起動します。
+`group_vars/all.yml` の `app_limit_nofile` と `nginx_limit_nofile` を正とし、`make fleet-setup` で
+各systemd serviceのdrop-inへ反映します。既定値はともに `65535` です。Nginxの
+`worker_connections` も `nginx_worker_connections`（既定 `65535`）で設定します。
 
 ### netdataを見る
 

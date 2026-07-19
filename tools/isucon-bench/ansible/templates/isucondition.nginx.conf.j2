@@ -3,6 +3,8 @@ server {
     listen [::]:{{ nginx_listen_port }};
     server_name _;
 
+    client_body_buffer_size {{ nginx_client_body_buffer_size }};
+
     root {{ frontend_public_dir }};
     index index.html;
 

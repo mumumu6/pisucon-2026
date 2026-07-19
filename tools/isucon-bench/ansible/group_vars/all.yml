@@ -9,6 +9,8 @@ nginx_site_name: isucondition
 nginx_listen_port: 80
 nginx_app_port: 3000
 nginx_worker_connections: 65535
+nginx_limit_nofile: 65535
+nginx_client_body_buffer_size: 256k
 # 現在はappとnginxが同一ホストなので、パブリックIPへの折り返しを避ける。
 nginx_app_backend_host: 127.0.0.1
 
