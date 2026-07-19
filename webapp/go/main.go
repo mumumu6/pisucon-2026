@@ -44,7 +44,7 @@ const (
 	scoreConditionLevelCritical = 1
 	trendCacheTTL               = 600 * time.Millisecond
 	trendCacheMaxAge            = 900 * time.Millisecond
-	conditionBatchMaxRequests   = 32
+	conditionBatchMaxRequests   = 64
 	conditionBatchWait          = 5 * time.Millisecond
 )
 
@@ -1506,14 +1506,31 @@ func postIsuCondition(c echo.Context) error {
 	}
 
 	done := make(chan error, 1)
-	conditionWriteQueue <- conditionWriteRequest{
+	writeRequest := conditionWriteRequest{
 		jiaIsuUUID: jiaIsuUUID,
 		conditions: req,
 		done:       done,
 	}
-	if err := <-done; err != nil {
-		c.Logger().Errorf("db error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
+
+	// JIAクライアントは短いタイムアウトで接続を閉じる。その後も
+	// キュー投入・DBコミット待ちを続けると、net/httpが接続を閉じられず
+	// CLOSE-WAITのsocketとhandler goroutineが蓄積する。
+	// 投入済みの書き込みはwriterに任せ、切断済みのHTTP handlerだけを返す。
+	requestContext := c.Request().Context()
+	select {
+	case conditionWriteQueue <- writeRequest:
+	case <-requestContext.Done():
+		return nil
+	}
+
+	select {
+	case err := <-done:
+		if err != nil {
+			c.Logger().Errorf("db error: %v", err)
+			return c.NoContent(http.StatusInternalServerError)
+		}
+	case <-requestContext.Done():
+		return nil
 	}
 
 	return c.NoContent(http.StatusAccepted)
