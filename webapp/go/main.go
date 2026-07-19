@@ -242,7 +242,11 @@ func main() {
 		e.Logger.Fatalf("failed to connect db: %v", err)
 		return
 	}
-	db.SetMaxOpenConns(10)
+	// Authentication is cookie based, and several endpoints can issue database
+	// queries concurrently.  The default of ten connections made otherwise
+	// independent requests wait for a free connection under benchmark load.
+	db.SetMaxOpenConns(50)
+	db.SetMaxIdleConns(50)
 	defer db.Close()
 
 	postIsuConditionTargetBaseURL = os.Getenv("POST_ISUCONDITION_TARGET_BASE_URL")
@@ -273,19 +277,15 @@ func getUserIDFromSession(c echo.Context) (string, int, error) {
 		return "", http.StatusUnauthorized, fmt.Errorf("no session")
 	}
 
-	jiaUserID := _jiaUserID.(string)
-	var count int
-
-	err = db.Get(&count, "SELECT COUNT(*) FROM `user` WHERE `jia_user_id` = ?",
-		jiaUserID)
-	if err != nil {
-		return "", http.StatusInternalServerError, fmt.Errorf("db error: %v", err)
+	jiaUserID, ok := _jiaUserID.(string)
+	if !ok || jiaUserID == "" {
+		return "", http.StatusUnauthorized, fmt.Errorf("invalid session")
 	}
 
-	if count == 0 {
-		return "", http.StatusUnauthorized, fmt.Errorf("not found: user")
-	}
-
+	// The session is stored in a signed cookie and is created only after the
+	// user has been inserted.  There is no user-deletion/revocation operation,
+	// so a database existence check on every request is redundant.  In
+	// particular, /api/user/me can now complete without waiting on MySQL.
 	return jiaUserID, 0, nil
 }
 
