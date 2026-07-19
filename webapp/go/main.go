@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,6 +45,8 @@ const (
 	scoreConditionLevelCritical = 1
 	trendCacheTTL               = 600 * time.Millisecond
 	trendCacheMaxAge            = 900 * time.Millisecond
+	conditionBatchMaxRequests   = 32
+	conditionBatchWait          = 5 * time.Millisecond
 )
 
 var (
@@ -84,11 +87,19 @@ var (
 		sync.RWMutex
 		values map[string]isuIconCacheEntry
 	}{values: make(map[string]isuIconCacheEntry)}
+
+	conditionWriteQueue chan conditionWriteRequest
 )
 
 type isuIconCacheEntry struct {
 	jiaUserID string
 	image     []byte
+}
+
+type conditionWriteRequest struct {
+	jiaIsuUUID string
+	conditions []PostIsuConditionRequest
+	done       chan error
 }
 
 type Isu struct {
@@ -287,6 +298,7 @@ func main() {
 	db.SetMaxOpenConns(50)
 	db.SetMaxIdleConns(50)
 	defer db.Close()
+	startConditionWriter()
 
 	postIsuConditionTargetBaseURL = os.Getenv("POST_ISUCONDITION_TARGET_BASE_URL")
 	if postIsuConditionTargetBaseURL == "" {
@@ -1339,6 +1351,117 @@ func reverseTrendResponses(trends []*TrendResponse) {
 	}
 }
 
+func startConditionWriter() {
+	conditionWriteQueue = make(chan conditionWriteRequest, 4096)
+	go conditionWriter()
+}
+
+func conditionWriter() {
+	for first := range conditionWriteQueue {
+		batch := []conditionWriteRequest{first}
+		timer := time.NewTimer(conditionBatchWait)
+	collect:
+		for len(batch) < conditionBatchMaxRequests {
+			select {
+			case request := <-conditionWriteQueue:
+				batch = append(batch, request)
+			case <-timer.C:
+				break collect
+			}
+		}
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+
+		err := writeConditionBatch(batch)
+		for _, request := range batch {
+			request.done <- err
+		}
+	}
+}
+
+func writeConditionBatch(batch []conditionWriteRequest) error {
+	type latestCondition struct {
+		jiaIsuUUID string
+		condition  PostIsuConditionRequest
+	}
+
+	rowCount := 0
+	for _, request := range batch {
+		rowCount += len(request.conditions)
+	}
+	placeholders := make([]string, 0, rowCount)
+	args := make([]interface{}, 0, rowCount*5)
+	latestByIsu := make(map[string]latestCondition)
+	for _, request := range batch {
+		for _, condition := range request.conditions {
+			placeholders = append(placeholders, "(?, ?, ?, ?, ?)")
+			args = append(args,
+				request.jiaIsuUUID,
+				time.Unix(condition.Timestamp, 0),
+				condition.IsSitting,
+				condition.Condition,
+				condition.Message,
+			)
+			latest, ok := latestByIsu[request.jiaIsuUUID]
+			if !ok || condition.Timestamp >= latest.condition.Timestamp {
+				latestByIsu[request.jiaIsuUUID] = latestCondition{request.jiaIsuUUID, condition}
+			}
+		}
+	}
+
+	tx, err := db.Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(
+		"INSERT INTO `isu_condition`"+
+			" (`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`) VALUES "+
+			strings.Join(placeholders, ", "),
+		args...,
+	)
+	if err != nil {
+		return err
+	}
+
+	uuids := make([]string, 0, len(latestByIsu))
+	for jiaIsuUUID := range latestByIsu {
+		uuids = append(uuids, jiaIsuUUID)
+	}
+	sort.Strings(uuids)
+	updatedLatest := make([]latestCondition, 0, len(uuids))
+	for _, jiaIsuUUID := range uuids {
+		latest := latestByIsu[jiaIsuUUID]
+		cachedTimestamp, cached := getCachedIsuLatestTimestamp(jiaIsuUUID)
+		if cached && latest.condition.Timestamp < cachedTimestamp {
+			continue
+		}
+		_, err = tx.Exec(
+			"UPDATE `isu` SET `latest_timestamp` = ?, `latest_is_sitting` = ?, `latest_condition` = ?, `latest_message` = ?"+
+				" WHERE `jia_isu_uuid` = ? AND (`latest_timestamp` IS NULL OR `latest_timestamp` <= ?)",
+			time.Unix(latest.condition.Timestamp, 0), latest.condition.IsSitting, latest.condition.Condition, latest.condition.Message,
+			jiaIsuUUID, time.Unix(latest.condition.Timestamp, 0),
+		)
+		if err != nil {
+			return err
+		}
+		updatedLatest = append(updatedLatest, latest)
+	}
+
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	for _, latest := range updatedLatest {
+		setCachedIsuLatestTimestamp(latest.jiaIsuUUID, latest.condition.Timestamp)
+	}
+	return nil
+}
+
 // POST /api/condition/:jia_isu_uuid
 // ISUからのコンディションを受け取る
 func postIsuCondition(c echo.Context) error {
@@ -1376,70 +1499,21 @@ func postIsuCondition(c echo.Context) error {
 		return c.String(http.StatusNotFound, "not found: isu")
 	}
 
-	tx, err := db.Beginx()
-	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	defer tx.Rollback()
-
-	placeholders := make([]string, len(req))
-	args := make([]interface{}, 0, len(req)*5)
-	var latest *PostIsuConditionRequest
 	for i := range req {
-		cond := &req[i]
-		if !isValidConditionFormat(cond.Condition) {
+		if !isValidConditionFormat(req[i].Condition) {
 			return c.String(http.StatusBadRequest, "bad request body")
 		}
-
-		placeholders[i] = "(?, ?, ?, ?, ?)"
-		args = append(args,
-			jiaIsuUUID,
-			time.Unix(cond.Timestamp, 0),
-			cond.IsSitting,
-			cond.Condition,
-			cond.Message,
-		)
-
-		// 同一リクエスト内で同時刻なら、後の要素を最新として扱う。
-		if latest == nil || cond.Timestamp >= latest.Timestamp {
-			latest = cond
-		}
 	}
 
-	_, err = tx.Exec(
-		"INSERT INTO `isu_condition`"+
-			" (`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`) VALUES "+
-			strings.Join(placeholders, ", "),
-		args...,
-	)
-	if err != nil {
+	done := make(chan error, 1)
+	conditionWriteQueue <- conditionWriteRequest{
+		jiaIsuUUID: jiaIsuUUID,
+		conditions: req,
+		done:       done,
+	}
+	if err := <-done; err != nil {
 		c.Logger().Errorf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
-	}
-
-	cachedLatestTimestamp, latestTimestampCached := getCachedIsuLatestTimestamp(jiaIsuUUID)
-	updateLatest := !latestTimestampCached || latest.Timestamp >= cachedLatestTimestamp
-	if updateLatest {
-		_, err = tx.Exec(
-			"UPDATE `isu` SET `latest_timestamp` = ?, `latest_is_sitting` = ?, `latest_condition` = ?, `latest_message` = ?"+
-				" WHERE `jia_isu_uuid` = ? AND (`latest_timestamp` IS NULL OR `latest_timestamp` <= ?)",
-			time.Unix(latest.Timestamp, 0), latest.IsSitting, latest.Condition, latest.Message,
-			jiaIsuUUID, time.Unix(latest.Timestamp, 0),
-		)
-		if err != nil {
-			c.Logger().Errorf("db error: %v", err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	if updateLatest {
-		setCachedIsuLatestTimestamp(jiaIsuUUID, latest.Timestamp)
 	}
 
 	return c.NoContent(http.StatusAccepted)
