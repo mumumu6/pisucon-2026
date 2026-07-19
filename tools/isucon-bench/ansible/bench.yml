@@ -35,6 +35,13 @@
   tasks:
     - name: ベンチ計測と終了後の解析を実行する
       block:
+        - name: ベンチ前にMariaDBを再起動する
+          ansible.builtin.systemd:
+            name: "{{ mysql_service }}"
+            state: restarted
+          become: true
+          when: inventory_hostname in groups['db']
+
         - name: デプロイ済みのGitリビジョンを取得する
           ansible.builtin.command:
             argv: [git, rev-parse, HEAD]

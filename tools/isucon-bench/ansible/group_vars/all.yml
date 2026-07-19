@@ -25,6 +25,7 @@ access_log: /var/log/nginx/access.log
 access_log_format: ltsv
 alp_options: []
 mysql_admin_command: mysql
+mysql_service: mariadb
 mysql_slow_query_time: 0
 slow_log: /var/log/mysql/mariadb-slow.log
 # COMMITごとのfsyncを避けるISUCON向け設定。OS/電源断時は直近約1秒の更新を失う可能性があります。
