@@ -118,30 +118,11 @@
           changed_when: true
           when: inventory_hostname in groups['db']
 
-        - name: ブラウザでベンチ開始できるまで待つ
-          ansible.builtin.pause:
-            prompt: >-
-              Preparation is complete. Open the benchmark start screen, then
-              press Enter to arm profiling
-          when: inventory_hostname == groups['reporter'][0]
-
         - name: 計測開始時刻を記録する
           ansible.builtin.command:
             argv: [date, +%s]
           register: benchmark_started_epoch
           changed_when: false
-
-        - name: 計測開始時刻を文字列で記録する
-          ansible.builtin.command:
-            argv: [date, --iso-8601=seconds]
-          register: benchmark_started_at
-          changed_when: false
-
-        - name: 計測開始時刻を保存する
-          ansible.builtin.copy:
-            content: "{{ benchmark_started_at.stdout }}\n"
-            dest: "{{ session_dir }}/started-at.txt"
-            mode: "0644"
 
         - name: アプリホストでCPUプロファイル取得を開始する
           ansible.builtin.command:
@@ -166,14 +147,14 @@
 
         - name: ブラウザでベンチを開始するよう案内する
           ansible.builtin.debug:
-            msg: "Profiling is armed. Click the benchmark start button now."
+            msg: "計測を開始しました。ブラウザでベンチを開始してください。"
           when: inventory_hostname == groups['reporter'][0]
 
         - name: ブラウザベンチの終了とスコア入力を待つ
           ansible.builtin.pause:
             prompt: >-
-              After the browser benchmark finishes, enter the displayed score
-              (or press Enter to leave it unknown)
+              ブラウザのベンチが終了したら表示されたスコアを入力してください。
+              不明な場合はEnterだけを押してください。
           register: browser_benchmark_result
           when: inventory_hostname == groups['reporter'][0]
 
@@ -190,12 +171,6 @@
           ansible.builtin.command:
             argv: [date, +%s]
           register: measurement_stopped_epoch
-          changed_when: false
-
-        - name: 計測終了時刻を文字列で記録する
-          ansible.builtin.command:
-            argv: [date, --iso-8601=seconds]
-          register: measurement_stopped_at
           changed_when: false
 
         - name: CPUプロファイル取得の完了を待つ
@@ -218,29 +193,12 @@
           changed_when: false
           when: measurement_stopped_epoch is not defined
 
-        - name: 中断時の計測終了時刻を文字列で記録する
-          ansible.builtin.command:
-            argv: [date, --iso-8601=seconds]
-          register: fallback_stopped_at
-          changed_when: false
-          when: measurement_stopped_at is not defined
-
         - name: 有効な計測終了時刻を選ぶ
           ansible.builtin.set_fact:
             effective_stopped_epoch: >-
               {{ measurement_stopped_epoch.stdout
                  if measurement_stopped_epoch is defined
                  else fallback_stopped_epoch.stdout }}
-            effective_stopped_at: >-
-              {{ measurement_stopped_at.stdout
-                 if measurement_stopped_at is defined
-                 else fallback_stopped_at.stdout }}
-
-        - name: 計測終了時刻を保存する
-          ansible.builtin.copy:
-            content: "{{ effective_stopped_at }}\n"
-            dest: "{{ session_dir }}/stopped-at.txt"
-            mode: "0644"
 
         - name: Nginxのaccess logを計測結果へコピーする
           ansible.builtin.copy:

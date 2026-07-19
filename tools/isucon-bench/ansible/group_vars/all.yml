@@ -21,7 +21,10 @@ alp_options: []
 mysql_admin_command: mysql
 mysql_slow_query_time: 0
 slow_log: /var/log/mysql/mariadb-slow.log
-pt_query_digest_options: []
+# BLOBを含む実SQLは出力せず、集計表だけをレポートへ残す。
+pt_query_digest_options:
+  - --report-format
+  - profile
 
 # Goプロファイリング。待受先はlocalhostに限定します。
 pprof_go_dir: webapp/go

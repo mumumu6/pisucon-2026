@@ -112,6 +112,15 @@ make finish
 `make finish` はnetdataとslow query logを停止し、pprofの生成コードを削除してアプリを
 再ビルド・再起動します。
 
+### netdataを見る
+
+netdataはサーバーのlocalhostだけで待ち受けます。手元PCで次を実行したまま、ブラウザで
+`http://localhost:19999` を開きます。
+
+```bash
+ssh -L 19999:127.0.0.1:19999 isucon@<サーバーIP>
+```
+
 ## サーバー再作成
 
 GitHub上のremote repositoryを先に作成し、`group_vars/all.yml` の

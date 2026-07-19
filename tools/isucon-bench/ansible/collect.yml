@@ -44,8 +44,6 @@
       - pprof.txt
       - pt-query-digest.txt
       - score.txt
-      - started-at.txt
-      - stopped-at.txt
   tasks:
     - name: 手元PCにセッション用ディレクトリを作る
       ansible.builtin.file:
