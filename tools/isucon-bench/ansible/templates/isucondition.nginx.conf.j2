@@ -5,6 +5,13 @@ server {
 
     client_body_buffer_size {{ nginx_client_body_buffer_size }};
 
+    # trendなどのJSONレスポンスを軽量圧縮し、転送量とGoの書き込み負荷を減らす。
+    gzip on;
+    gzip_comp_level 1;
+    gzip_min_length 1024;
+    gzip_types application/json;
+    gzip_vary on;
+
     root {{ frontend_public_dir }};
     index index.html;
 
