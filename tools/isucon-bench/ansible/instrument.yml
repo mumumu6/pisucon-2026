@@ -15,6 +15,7 @@
           - pprof_go_dir is not search('(^|/)\.\.(/|$)')
           - pprof_listen_addr is match('^(127\.0\.0\.1|\[::1\]):[0-9]+$')
           - remote_project_root is defined
+          - app_working_dir is defined
         fail_msg: >-
           pprof_go_dir must be a safe path below remote_project_root and
           pprof_listen_addr must bind to localhost
@@ -91,7 +92,7 @@
     - name: Pprofコード変更後にアプリをビルドする
       ansible.builtin.command:
         argv: [/bin/bash, -lc, "{{ build_command }}"]
-        chdir: "{{ remote_project_root }}"
+        chdir: "{{ app_working_dir }}"
       changed_when: true
       when:
         - build_command | length > 0
@@ -100,7 +101,7 @@
     - name: Pprofコード変更後にアプリを再起動する
       ansible.builtin.command:
         argv: [/bin/bash, -lc, "{{ restart_command }}"]
-        chdir: "{{ remote_project_root }}"
+        chdir: "{{ app_working_dir }}"
       changed_when: true
       when:
         - restart_command | length > 0

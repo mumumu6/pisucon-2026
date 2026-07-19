@@ -3,6 +3,7 @@
 
 remote_project_root: /home/isucon
 remote_log_root: /home/isucon/log
+app_working_dir: /home/isucon/webapp/go
 
 git_repository: git@github.com:mumumu6/pisucon-2026.git
 git_version: main
@@ -23,7 +24,7 @@ slow_log: /var/log/mysql/mysql-slow.log
 pt_query_digest_options: []
 
 # Goプロファイリング。待受先はlocalhostに限定します。
-pprof_go_dir: path/to/go/main/package
+pprof_go_dir: webapp/go
 pprof_listen_addr: 127.0.0.1:6060
 pprof_url: http://127.0.0.1:6060/debug/pprof/profile
 pprof_seconds: 75
@@ -38,8 +39,6 @@ netdata_charts:
   - system.load
   - system.io
 
-# Ansibleを実行する手元PC側の設定。
-local_log_root: ~/log
 github_repository: mumumu6/pisucon-2026
 create_github_issue: true
 fleet_auto_publish: false

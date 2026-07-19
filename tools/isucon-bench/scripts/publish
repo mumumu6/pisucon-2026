@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 tool_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repository_root="$(cd "$tool_root/../.." && pwd)"
 inventory="${ANSIBLE_INVENTORY:-$tool_root/ansible/inventory.yml}"
 requested_session="${1:-}"
 
@@ -16,10 +17,9 @@ reporter="$(jq --exit-status --raw-output '.reporter.hosts | select(length == 1)
   exit 1
 }
 config="$(jq --compact-output --arg host "$reporter" '._meta.hostvars[$host]' <<< "$inventory_json")"
-log_root="$(jq --exit-status --raw-output '.local_log_root' <<< "$config")"
+log_root="${LOCAL_LOG_ROOT:-$repository_root/log}"
 github_repository="$(jq --raw-output '.github_repository // ""' <<< "$config")"
 create_issue="$(jq --raw-output '.create_github_issue // true' <<< "$config")"
-[[ "$log_root" == '~/'* ]] && log_root="$HOME/${log_root#\~/}"
 
 if [[ -n "$requested_session" ]]; then
   [[ "$requested_session" = /* ]] && session="$requested_session" || session="$log_root/$requested_session"

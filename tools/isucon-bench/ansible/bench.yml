@@ -18,10 +18,12 @@
           - groups.get('db', []) | length > 0
           - groups.get('nginx', []) | length > 0
           - remote_project_root is defined
+          - app_working_dir is defined
           - remote_log_root is defined
         fail_msg: >-
           inventory must define exactly one reporter, and non-empty app, db and
-          nginx groups together with remote_project_root and remote_log_root
+          nginx groups together with remote_project_root, app_working_dir and
+          remote_log_root
       when: inventory_hostname == ansible_play_hosts_all[0]
 
     - name: ホストごとの計測結果ディレクトリを作る
@@ -52,7 +54,7 @@
         - name: アプリホストでアプリをビルドする
           ansible.builtin.command:
             argv: [/bin/bash, -lc, "{{ build_command }}"]
-            chdir: "{{ remote_project_root }}"
+            chdir: "{{ app_working_dir }}"
           changed_when: true
           when:
             - inventory_hostname in groups['app']
@@ -61,7 +63,7 @@
         - name: アプリホストでアプリを再起動する
           ansible.builtin.command:
             argv: [/bin/bash, -lc, "{{ restart_command }}"]
-            chdir: "{{ remote_project_root }}"
+            chdir: "{{ app_working_dir }}"
           changed_when: true
           when:
             - inventory_hostname in groups['app']
