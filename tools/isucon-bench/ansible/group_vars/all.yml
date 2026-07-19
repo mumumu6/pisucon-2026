@@ -19,6 +19,8 @@ git_user_email: takumu.sato@gmail.com
 # アプリ固有の操作。
 build_command: go build -o isucondition .
 restart_command: sudo systemctl restart isucondition.go.service
+app_service: isucondition.go.service
+app_limit_nofile: 65535
 
 # ログと解析ツール。
 access_log: /var/log/nginx/access.log

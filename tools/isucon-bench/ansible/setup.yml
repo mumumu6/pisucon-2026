@@ -38,6 +38,25 @@
       until: go_packages is succeeded
       when: inventory_hostname in groups['app']
 
+    - name: Goアプリのsystemd overrideディレクトリを作る
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ app_service }}.d"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when: inventory_hostname in groups['app']
+
+    - name: Goアプリのファイルディスクリプタ上限を設定する
+      ansible.builtin.template:
+        src: templates/isucondition.go.service-limit-nofile.conf.j2
+        dest: "/etc/systemd/system/{{ app_service }}.d/limit-nofile.conf"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Goアプリのsystemd設定を反映する
+      when: inventory_hostname in groups['app']
+
     - name: DBホストへMariaDBとpt-query-digestを導入する
       ansible.builtin.apt:
         name:
@@ -134,6 +153,12 @@
       when: inventory_hostname in groups['db']
 
   handlers:
+    - name: Goアプリのsystemd設定を反映する
+      ansible.builtin.systemd:
+        name: "{{ app_service }}"
+        daemon_reload: true
+        state: restarted
+
     - name: Nginxを再読み込みする
       ansible.builtin.systemd:
         name: nginx
