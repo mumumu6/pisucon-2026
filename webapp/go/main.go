@@ -42,8 +42,8 @@ const (
 	scoreConditionLevelInfo     = 3
 	scoreConditionLevelWarning  = 2
 	scoreConditionLevelCritical = 1
-	trendCacheTTL               = 500 * time.Millisecond
-	trendCacheMaxAge            = 800 * time.Millisecond
+	trendCacheTTL               = 600 * time.Millisecond
+	trendCacheMaxAge            = 900 * time.Millisecond
 )
 
 var (
@@ -1320,7 +1320,7 @@ func reverseTrendResponses(trends []*TrendResponse) {
 // ISUからのコンディションを受け取る
 func postIsuCondition(c echo.Context) error {
 	// TODO: 一定割合リクエストを落としてしのぐようにしたが、本来は全量さばけるようにすべき
-	dropProbability := 0.9
+	dropProbability := 0.5
 	if rand.Float64() <= dropProbability {
 		return c.NoContent(http.StatusAccepted)
 	}
