@@ -1062,17 +1062,17 @@ func calculateConditionLevel(condition string) (string, error) {
 // ISUの性格毎の最新のコンディション情報
 func getTrend(c echo.Context) error {
 	type trendRow struct {
-		IsuID     int       `db:"isu_id"`
-		Character string    `db:"character"`
-		Timestamp time.Time `db:"timestamp"`
-		Condition string    `db:"condition"`
+		IsuID           int       `db:"isu_id"`
+		Character       string    `db:"character"`
+		LatestTimestamp time.Time `db:"latest_timestamp"`
+		LatestCondition string    `db:"latest_condition"`
 	}
 
 	rows := []trendRow{}
 	err := db.Select(&rows, `
-		SELECT id AS isu_id, character, latest_timestamp AS timestamp, latest_condition AS condition
+		SELECT isu.id AS isu_id, isu.character, isu.latest_timestamp, isu.latest_condition
 		FROM isu
-		WHERE latest_timestamp IS NOT NULL`)
+		WHERE isu.latest_timestamp IS NOT NULL`)
 	if err != nil {
 		c.Logger().Errorf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
@@ -1088,12 +1088,12 @@ func getTrend(c echo.Context) error {
 			res = append(res, *trend)
 		}
 
-		conditionLevel, err := calculateConditionLevel(row.Condition)
+		conditionLevel, err := calculateConditionLevel(row.LatestCondition)
 		if err != nil {
 			c.Logger().Error(err)
 			return c.NoContent(http.StatusInternalServerError)
 		}
-		trendCondition := &TrendCondition{ID: row.IsuID, Timestamp: row.Timestamp.Unix()}
+		trendCondition := &TrendCondition{ID: row.IsuID, Timestamp: row.LatestTimestamp.Unix()}
 		switch conditionLevel {
 		case conditionLevelInfo:
 			trend.Info = append(trend.Info, trendCondition)
