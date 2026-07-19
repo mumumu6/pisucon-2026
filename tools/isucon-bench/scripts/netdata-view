@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+tool_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+inventory="${ANSIBLE_INVENTORY:-$tool_root/ansible/inventory.yml}"
+requested_host="${1:-}"
+
+command -v ansible-inventory >/dev/null || { echo "ansible-inventory is required" >&2; exit 1; }
+command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
+
+if [[ -z "$requested_host" ]] && curl -fsS --max-time 1 http://127.0.0.1:19999/api/v1/info >/dev/null 2>&1; then
+  echo "Netdata is already available: http://localhost:19999"
+  exit 0
+fi
+
+inventory_json="$(ansible-inventory --inventory "$inventory" --list)"
+host="${requested_host:-$(jq -r '.reporter.hosts[0] // empty' <<< "$inventory_json")}"
+[[ -n "$host" ]] || { echo "HOST is required because reporter is not configured" >&2; exit 1; }
+
+connection="$(jq -er --arg host "$host" '._meta.hostvars[$host]' <<< "$inventory_json")" || {
+  echo "unknown inventory host: $host" >&2
+  exit 1
+}
+address="$(jq -r --arg host "$host" '.ansible_host // $host' <<< "$connection")"
+user="$(jq -r '.ansible_user // "isucon"' <<< "$connection")"
+port="$(jq -r '.ansible_port // empty' <<< "$connection")"
+
+ssh_args=(-o ExitOnForwardFailure=yes -N -L 19999:127.0.0.1:19999)
+[[ -z "$port" ]] || ssh_args+=(-p "$port")
+
+echo "Netdata: http://localhost:19999 ($host)"
+exec ssh "${ssh_args[@]}" "$user@$address"

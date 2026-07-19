@@ -4,9 +4,10 @@ INVENTORY := tools/isucon-bench/ansible/inventory.yml
 PLAYBOOK := ansible-playbook --inventory $(INVENTORY)
 PUBLISH_SCRIPT := tools/isucon-bench/scripts/publish
 PPROF_SCRIPT := tools/isucon-bench/scripts/toggle-pprof
+NETDATA_SCRIPT := tools/isucon-bench/scripts/netdata-view
 BENCH_SESSION ?= $(shell date +%Y%m%d-%H%M%S)
 
-.PHONY: bootstrap pull fleet-setup fleet-enable fleet-disable mysql-tune collect instrument-on instrument-off finish publish bench help
+.PHONY: bootstrap pull fleet-setup fleet-enable fleet-disable mysql-tune collect instrument-on instrument-off pprof-view netdata-view finish publish bench help
 
 help: ## Makeターゲットと用途を表示する
 	@awk 'BEGIN { FS = ":.*## "; printf "Usage: make <target> [OPTION=value]\n\n" } /^[a-zA-Z0-9_-]+:.*## / { printf "  %-18s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -39,6 +40,17 @@ instrument-on: ## appホストへpprofを配置し、ビルド・再起動する
 instrument-off: ## appホストからpprofを削除し、ビルド・再起動する
 	@$(PPROF_SCRIPT) off
 	@$(PLAYBOOK) --extra-vars instrument_state=off tools/isucon-bench/ansible/instrument.yml
+
+pprof-view: ## 最新のCPUプロファイルをブラウザで開く。例: make pprof-view SESSION=20260719-123000
+	@search_dir="log$(if $(SESSION),/$(SESSION),)"; \
+	test -d "$$search_dir" || { echo "profile directory not found: $$search_dir" >&2; exit 1; }; \
+	profile="$$(find "$$search_dir" -type f -name cpu.pprof -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"; \
+	test -n "$$profile" || { echo "cpu.pprof not found below $$search_dir" >&2; exit 1; }; \
+	echo "Opening $$profile on http://localhost:6070"; \
+	go tool pprof -http=:6070 -no_browser "$$profile"
+
+netdata-view: ## NetdataへのSSHトンネルを張る。複数台構成の例: make netdata-view HOST=isucon-2
+	@$(NETDATA_SCRIPT) "$(HOST)"
 
 bench: ## 計測・解析・回収を行う。Issue投稿: make bench PUBLISH=true
 	@status=0; \
