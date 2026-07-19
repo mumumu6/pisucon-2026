@@ -21,6 +21,9 @@ alp_options: []
 mysql_admin_command: mysql
 mysql_slow_query_time: 0
 slow_log: /var/log/mysql/mariadb-slow.log
+# COMMITごとのfsyncを避けるISUCON向け設定。OS/電源断時は直近約1秒の更新を失う可能性があります。
+mysql_innodb_flush_log_at_trx_commit: 2
+mysql_sync_binlog: 0
 # BLOBを含む実SQLは出力せず、集計表だけをレポートへ残す。
 pt_query_digest_options:
   - --report-format

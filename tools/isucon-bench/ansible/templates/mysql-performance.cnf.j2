@@ -1,0 +1,5 @@
+# Ansibleで管理: tools/isucon-bench/ansible/group_vars/all.yml
+# OSまたは電源の異常終了時、直近およそ1秒の書き込みが失われる可能性があります。
+[mariadb]
+innodb_flush_log_at_trx_commit = {{ mysql_innodb_flush_log_at_trx_commit }}
+sync_binlog = {{ mysql_sync_binlog }}

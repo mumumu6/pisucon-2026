@@ -58,6 +58,10 @@
         enabled: true
       when: inventory_hostname in groups['db']
 
+    - name: DBホストへMariaDB性能設定を反映する
+      ansible.builtin.include_tasks: tasks/mysql-performance.yml
+      when: inventory_hostname in groups['db']
+
     - name: Alp対応アーキテクチャを確認する
       ansible.builtin.assert:
         that: ansible_architecture in alp_arch_map
@@ -84,3 +88,9 @@
           - "--execute=SET GLOBAL long_query_time={{ mysql_slow_query_time }}; SET GLOBAL slow_query_log='ON';"
       changed_when: true
       when: inventory_hostname in groups['db']
+
+  handlers:
+    - name: MariaDBを再起動する
+      ansible.builtin.systemd:
+        name: mariadb
+        state: restarted

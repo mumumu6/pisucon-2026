@@ -1,0 +1,9 @@
+---
+- name: MariaDBのCOMMIT性能設定を配置する
+  ansible.builtin.template:
+    src: mysql-performance.cnf.j2
+    dest: /etc/mysql/mariadb.conf.d/99-isucon-performance.cnf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: MariaDBを再起動する

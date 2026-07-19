@@ -1,0 +1,13 @@
+---
+- name: Git管理されたMariaDB性能設定を反映する
+  hosts: db
+  become: true
+  tasks:
+    - name: MariaDB性能設定を反映する
+      ansible.builtin.include_tasks: tasks/mysql-performance.yml
+
+  handlers:
+    - name: MariaDBを再起動する
+      ansible.builtin.systemd:
+        name: mariadb
+        state: restarted
