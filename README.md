@@ -22,7 +22,6 @@ $EDITOR tools/isucon-bench/ansible/inventory.yml
 $EDITOR tools/isucon-bench/ansible/group_vars/all.yml
 
 make bootstrap
-make instrument-on
 make bench
 ```
 
@@ -82,36 +81,44 @@ make publish DIR=20260719-123000
 
 - `alp.txt`
 - `pt-query-digest.txt`
-- `pprof.txt`
+- `pprof.txt` と再解析・可視化用の `cpu.pprof`
 - `netdata.txt`
 - スコア、Git revision、開始・終了時刻
 
 nginx access log、MySQL slow log、netdataの生JSONは解析後に削除します。
+
+`cpu.pprof` を図で見るときは、手元PCで直接開きます。
+
+```bash
+go tool pprof -http=:6070 log/<SESSION>/<HOST>/cpu.pprof
+```
+
+ブラウザで `http://localhost:6070` を開くと、Graph と Flame Graphを確認できます。
 GitHub Issueは手元PCの `gh` から作成するため、競技サーバーにGitHubトークンは置きません。
 初回だけ手元PCで `gh auth login` を実行してください。
 
-## 計測機能のON/OFF
+## pprof
 
-netdataとslow query logは `make bootstrap` 後から常時有効です。pprofも一度
-`make instrument-on` するとlocalhostのHTTPエンドポイントが常設されますが、
-CPU計測負荷が発生するのは取得中だけです。
+`make bootstrap` はテンプレートから手元の `webapp/go/pprof.go` を生成して、そのファイルだけを
+自動commitします。同じコードをサーバーへ配置してビルド・再起動し、localhostの `:6060` で
+pprofを待ち受けます。
 
 ```bash
-make instrument-on   # Goアプリへpprofを追加して再ビルド・再起動
-make instrument-off  # pprofを削除して再ビルド・再起動
-make fleet-enable    # netdataとslow query logを手動でON
-make fleet-disable   # netdataとslow query logを手動でOFF
-make mysql-tune      # Git管理されたMariaDB性能設定を反映・再起動
+make instrument-on   # pprofを配置して有効化
+make instrument-off  # pprofを削除して無効化
 ```
 
-netdataにも多少の負荷があるため、競技終了前または最終スコア計測前はすべて外します。
+ON/OFF時の `pprof.go` の追加・削除とcommitはコマンド内で完結し、ほかの変更はcommitしません。
+手動の `git add` や `git commit` は不要です。
+
+netdataとpprofには多少の負荷があるため、競技終了前または最終スコア計測前は外します。
 
 ```bash
 make finish
 ```
 
-`make finish` はnetdataとslow query logを停止し、pprofの生成コードを削除してアプリを
-再ビルド・再起動します。
+`make finish` はnetdataとslow query logを停止し、手元とappホストの `pprof.go` を削除して
+削除を自動commitし、アプリを再ビルド・再起動します。
 
 ### MariaDBの性能設定
 
@@ -211,7 +218,7 @@ make collect SESSION=<セッションID>
 Makefile
 ├── tools/isucon-bench/ansible/setup.yml       サーバーへ計測ツールを導入
 ├── tools/isucon-bench/ansible/git.yml         repositoryをclone・更新
-├── tools/isucon-bench/ansible/instrument.yml  pprofを追加・削除
+├── tools/isucon-bench/ansible/instrument.yml  pprofを配置・削除
 ├── tools/isucon-bench/ansible/bench.yml       ベンチ前処理・計測・解析
 ├── tools/isucon-bench/ansible/collect.yml     成果物の回収・レポート統合
 ├── tools/isucon-bench/ansible/disable.yml     計測負荷を停止

@@ -3,6 +3,7 @@ SHELL := /usr/bin/env bash
 INVENTORY := tools/isucon-bench/ansible/inventory.yml
 PLAYBOOK := ansible-playbook --inventory $(INVENTORY)
 PUBLISH_SCRIPT := tools/isucon-bench/scripts/publish
+PPROF_SCRIPT := tools/isucon-bench/scripts/toggle-pprof
 BENCH_SESSION ?= $(shell date +%Y%m%d-%H%M%S)
 
 .PHONY: bootstrap pull fleet-setup fleet-enable fleet-disable mysql-tune collect instrument-on instrument-off finish publish bench help
@@ -11,8 +12,10 @@ help: ## Makeターゲットと用途を表示する
 	@awk 'BEGIN { FS = ":.*## "; printf "Usage: make <target> [OPTION=value]\n\n" } /^[a-zA-Z0-9_-]+:.*## / { printf "  %-18s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
 bootstrap: ## 全サーバーへ計測ツールを導入し、Git repositoryを復元する
+	@$(PPROF_SCRIPT) on
 	@$(PLAYBOOK) tools/isucon-bench/ansible/setup.yml
 	@$(PLAYBOOK) tools/isucon-bench/ansible/git.yml
+	@$(PLAYBOOK) --extra-vars instrument_state=on tools/isucon-bench/ansible/instrument.yml
 
 pull: ## GitHubの指定ブランチを全サーバーへ取得する（ローカルのpushは別途行う）
 	@$(PLAYBOOK) tools/isucon-bench/ansible/git.yml
@@ -29,10 +32,12 @@ fleet-disable: ## netdataとslow query logを止める
 mysql-tune: ## Git管理されたMariaDB性能設定をDBホストへ反映し、MariaDBを再起動する
 	@$(PLAYBOOK) tools/isucon-bench/ansible/mysql.yml
 
-instrument-on: ## appホストへGo pprofの生成コードを追加し、ビルド・再起動する
+instrument-on: ## appホストへpprofを配置し、ビルド・再起動する
+	@$(PPROF_SCRIPT) on
 	@$(PLAYBOOK) --extra-vars instrument_state=on tools/isucon-bench/ansible/instrument.yml
 
-instrument-off: ## appホストからpprofの生成コードを削除し、ビルド・再起動する
+instrument-off: ## appホストからpprofを削除し、ビルド・再起動する
+	@$(PPROF_SCRIPT) off
 	@$(PLAYBOOK) --extra-vars instrument_state=off tools/isucon-bench/ansible/instrument.yml
 
 bench: ## 計測・解析・回収を行う。Issue投稿: make bench PUBLISH=true
@@ -48,6 +53,7 @@ collect: ## 結果だけ再取得する。例: make collect SESSION=20260719-123
 publish: ## 取得済みの解析結果からGitHub Issueを作る。例: make publish DIR=20260719-123000
 	@$(PUBLISH_SCRIPT) "$(DIR)"
 
-finish: ## 競技終了前にnetdata・slow query log・pprofをすべて外す
+finish: ## 最終計測前にnetdata・slow query log・pprofを外す
+	@$(PPROF_SCRIPT) off
 	@$(PLAYBOOK) tools/isucon-bench/ansible/disable.yml
 	@$(PLAYBOOK) --extra-vars instrument_state=off tools/isucon-bench/ansible/instrument.yml

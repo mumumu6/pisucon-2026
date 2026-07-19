@@ -127,15 +127,13 @@
         - name: アプリホストでCPUプロファイル取得を開始する
           ansible.builtin.command:
             argv:
-              - curl
-              - --fail
-              - --silent
-              - --show-error
-              - --get
-              - --data-urlencode
-              - "seconds={{ pprof_seconds }}"
-              - --output
+              - go
+              - tool
+              - pprof
+              - -proto
+              - -output
               - "{{ session_dir }}/cpu.pprof"
+              - "-seconds={{ pprof_seconds }}"
               - "{{ pprof_url }}"
           async: "{{ (pprof_seconds | int) + 120 }}"
           poll: 0

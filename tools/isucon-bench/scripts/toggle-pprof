@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+template="$repository_root/tools/isucon-bench/ansible/templates/pprof.go.j2"
+relative_target="webapp/go/pprof.go"
+target="$repository_root/$relative_target"
+state="${1:-}"
+
+case "$state" in
+  on)
+    install -m 0644 "$template" "$target"
+    commit_message="chore: enable pprof"
+    ;;
+  off)
+    rm -f "$target"
+    commit_message="chore: disable pprof"
+    ;;
+  *)
+    echo "usage: $0 on|off" >&2
+    exit 2
+    ;;
+esac
+
+git -C "$repository_root" add --all -- "$relative_target"
+if ! git -C "$repository_root" diff --cached --quiet -- "$relative_target"; then
+  git -C "$repository_root" commit --only -m "$commit_message" -- "$relative_target"
+fi

@@ -38,6 +38,7 @@
     per_host_session_dir: "{{ remote_log_root }}/{{ selected_session }}/{{ inventory_hostname }}"
     collected_artifact_names:
       - alp.txt
+      - cpu.pprof
       - git-revision.txt
       - netdata.txt
       - pprof.txt

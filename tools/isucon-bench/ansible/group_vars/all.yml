@@ -30,8 +30,6 @@ pt_query_digest_options:
   - profile
 
 # Goプロファイリング。待受先はlocalhostに限定します。
-pprof_go_dir: webapp/go
-pprof_listen_addr: 127.0.0.1:6060
 pprof_url: http://127.0.0.1:6060/debug/pprof/profile
 pprof_seconds: 75
 
