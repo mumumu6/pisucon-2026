@@ -82,7 +82,7 @@ make publish DIR=20260719-123000
 
 - `alp.txt`
 - `pt-query-digest.txt`
-- `pprof.txt` と再解析用の `cpu.pprof`
+- `pprof.txt`
 - `netdata.txt`
 - スコア、Git revision、開始・終了時刻
 
