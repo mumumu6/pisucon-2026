@@ -1440,16 +1440,56 @@ func writeConditionBatch(batch []conditionWriteRequest) error {
 		if cached && latest.condition.Timestamp < cachedTimestamp {
 			continue
 		}
-		_, err = tx.Exec(
-			"UPDATE `isu` SET `latest_timestamp` = ?, `latest_is_sitting` = ?, `latest_condition` = ?, `latest_message` = ?"+
-				" WHERE `jia_isu_uuid` = ? AND (`latest_timestamp` IS NULL OR `latest_timestamp` <= ?)",
-			time.Unix(latest.condition.Timestamp, 0), latest.condition.IsSitting, latest.condition.Condition, latest.condition.Message,
-			jiaIsuUUID, time.Unix(latest.condition.Timestamp, 0),
-		)
-		if err != nil {
+		updatedLatest = append(updatedLatest, latest)
+	}
+	if len(updatedLatest) > 0 {
+		var updateQuery strings.Builder
+		updateArgs := make([]interface{}, 0, len(updatedLatest)*11)
+		appendCase := func(column string, value func(latestCondition) interface{}) {
+			updateQuery.WriteString(" `")
+			updateQuery.WriteString(column)
+			updateQuery.WriteString("` = CASE `jia_isu_uuid`")
+			for _, latest := range updatedLatest {
+				updateQuery.WriteString(" WHEN ? THEN ?")
+				updateArgs = append(updateArgs, latest.jiaIsuUUID, value(latest))
+			}
+			updateQuery.WriteString(" ELSE `")
+			updateQuery.WriteString(column)
+			updateQuery.WriteString("` END")
+		}
+
+		updateQuery.WriteString("UPDATE `isu` SET")
+		appendCase("latest_timestamp", func(latest latestCondition) interface{} {
+			return time.Unix(latest.condition.Timestamp, 0)
+		})
+		updateQuery.WriteString(",")
+		appendCase("latest_is_sitting", func(latest latestCondition) interface{} {
+			return latest.condition.IsSitting
+		})
+		updateQuery.WriteString(",")
+		appendCase("latest_condition", func(latest latestCondition) interface{} {
+			return latest.condition.Condition
+		})
+		updateQuery.WriteString(",")
+		appendCase("latest_message", func(latest latestCondition) interface{} {
+			return latest.condition.Message
+		})
+
+		updateQuery.WriteString(" WHERE `jia_isu_uuid` IN (")
+		updateQuery.WriteString(strings.TrimRight(strings.Repeat("?,", len(updatedLatest)), ","))
+		updateQuery.WriteString(") AND (`latest_timestamp` IS NULL OR `latest_timestamp` <= CASE `jia_isu_uuid`")
+		for _, latest := range updatedLatest {
+			updateArgs = append(updateArgs, latest.jiaIsuUUID)
+		}
+		for _, latest := range updatedLatest {
+			updateQuery.WriteString(" WHEN ? THEN ?")
+			updateArgs = append(updateArgs, latest.jiaIsuUUID, time.Unix(latest.condition.Timestamp, 0))
+		}
+		updateQuery.WriteString(" END)")
+
+		if _, err = tx.Exec(updateQuery.String(), updateArgs...); err != nil {
 			return err
 		}
-		updatedLatest = append(updatedLatest, latest)
 	}
 
 	if err = tx.Commit(); err != nil {
