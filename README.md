@@ -151,7 +151,9 @@ make bootstrap
 ```
 
 `make bootstrap` は全ホストへalp、netdata、pt-query-digestなどを導入し、repositoryを
-cloneまたは指定branchへ更新します。未commitの変更は上書きしません。
+cloneまたは指定branchへ更新します。nginxは既存の `webapp/public` を直接配信し、`/assets/` と
+SPA画面はGoアプリを経由しません。`/api/` と `/initialize` だけがGoアプリへプロキシされます。
+未commitの変更は上書きしません。
 
 ## よく使うコマンド
 

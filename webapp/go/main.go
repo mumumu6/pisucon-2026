@@ -58,14 +58,18 @@ type Config struct {
 }
 
 type Isu struct {
-	ID         int       `db:"id" json:"id"`
-	JIAIsuUUID string    `db:"jia_isu_uuid" json:"jia_isu_uuid"`
-	Name       string    `db:"name" json:"name"`
-	Image      []byte    `db:"image" json:"-"`
-	Character  string    `db:"character" json:"character"`
-	JIAUserID  string    `db:"jia_user_id" json:"-"`
-	CreatedAt  time.Time `db:"created_at" json:"-"`
-	UpdatedAt  time.Time `db:"updated_at" json:"-"`
+	ID              int            `db:"id" json:"id"`
+	JIAIsuUUID      string         `db:"jia_isu_uuid" json:"jia_isu_uuid"`
+	Name            string         `db:"name" json:"name"`
+	Image           []byte         `db:"image" json:"-"`
+	Character       string         `db:"character" json:"character"`
+	LatestTimestamp sql.NullTime   `db:"latest_timestamp" json:"-"`
+	LatestIsSitting sql.NullBool   `db:"latest_is_sitting" json:"-"`
+	LatestCondition sql.NullString `db:"latest_condition" json:"-"`
+	LatestMessage   sql.NullString `db:"latest_message" json:"-"`
+	JIAUserID       string         `db:"jia_user_id" json:"-"`
+	CreatedAt       time.Time      `db:"created_at" json:"-"`
+	UpdatedAt       time.Time      `db:"updated_at" json:"-"`
 }
 
 type IsuFromJIA struct {
@@ -462,37 +466,24 @@ func getIsuList(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	responseList := []GetIsuListResponse{}
+	responseList := make([]GetIsuListResponse, 0, len(isuList))
 	for _, isu := range isuList {
-		var lastCondition IsuCondition
-		foundLastCondition := true
-		err = db.Get(&lastCondition, "SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = ? ORDER BY `timestamp` DESC LIMIT 1",
-			isu.JIAIsuUUID)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				foundLastCondition = false
-			} else {
-				c.Logger().Errorf("db error: %v", err)
-				return c.NoContent(http.StatusInternalServerError)
-			}
-		}
-
 		var formattedCondition *GetIsuConditionResponse
-		if foundLastCondition {
-			conditionLevel, err := calculateConditionLevel(lastCondition.Condition)
+		if isu.LatestTimestamp.Valid {
+			conditionLevel, err := calculateConditionLevel(isu.LatestCondition.String)
 			if err != nil {
 				c.Logger().Error(err)
 				return c.NoContent(http.StatusInternalServerError)
 			}
 
 			formattedCondition = &GetIsuConditionResponse{
-				JIAIsuUUID:     lastCondition.JIAIsuUUID,
+				JIAIsuUUID:     isu.JIAIsuUUID,
 				IsuName:        isu.Name,
-				Timestamp:      lastCondition.Timestamp.Unix(),
-				IsSitting:      lastCondition.IsSitting,
-				Condition:      lastCondition.Condition,
+				Timestamp:      isu.LatestTimestamp.Time.Unix(),
+				IsSitting:      isu.LatestIsSitting.Bool,
+				Condition:      isu.LatestCondition.String,
 				ConditionLevel: conditionLevel,
-				Message:        lastCondition.Message,
+				Message:        isu.LatestMessage.String,
 			}
 		}
 
@@ -1079,18 +1070,9 @@ func getTrend(c echo.Context) error {
 
 	rows := []trendRow{}
 	err := db.Select(&rows, `
-		SELECT isu.id AS isu_id, isu.character, ic.timestamp, ic.condition
+		SELECT id AS isu_id, character, latest_timestamp AS timestamp, latest_condition AS condition
 		FROM isu
-		JOIN isu_condition AS ic
-			ON ic.id = (
-				SELECT id
-				FROM isu_condition
-				WHERE jia_isu_uuid = isu.jia_isu_uuid
-				ORDER BY timestamp DESC
-				LIMIT 1
-			)
-				`)
-				
+		WHERE latest_timestamp IS NOT NULL`)
 	if err != nil {
 		c.Logger().Errorf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
@@ -1174,7 +1156,9 @@ func postIsuCondition(c echo.Context) error {
 		return c.String(http.StatusNotFound, "not found: isu")
 	}
 
-	for _, cond := range req {
+	var latest *PostIsuConditionRequest
+	for i := range req {
+		cond := &req[i]
 		timestamp := time.Unix(cond.Timestamp, 0)
 
 		if !isValidConditionFormat(cond.Condition) {
@@ -1191,6 +1175,21 @@ func postIsuCondition(c echo.Context) error {
 			return c.NoContent(http.StatusInternalServerError)
 		}
 
+		// 同一リクエスト内で同時刻なら、後の要素を最新として扱う。
+		if latest == nil || cond.Timestamp >= latest.Timestamp {
+			latest = cond
+		}
+	}
+
+	_, err = tx.Exec(
+		"UPDATE `isu` SET `latest_timestamp` = ?, `latest_is_sitting` = ?, `latest_condition` = ?, `latest_message` = ?"+
+			" WHERE `jia_isu_uuid` = ? AND (`latest_timestamp` IS NULL OR `latest_timestamp` <= ?)",
+		time.Unix(latest.Timestamp, 0), latest.IsSitting, latest.Condition, latest.Message,
+		jiaIsuUUID, time.Unix(latest.Timestamp, 0),
+	)
+	if err != nil {
+		c.Logger().Errorf("db error: %v", err)
+		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	err = tx.Commit()

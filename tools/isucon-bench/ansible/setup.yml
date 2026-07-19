@@ -75,6 +75,50 @@
         mode: "0755"
       when: inventory_hostname in groups['nginx']
 
+    - name: Nginxホストへ静的配信用パッケージを導入する
+      ansible.builtin.apt:
+        name:
+          - nginx
+        state: present
+        lock_timeout: 600
+      register: nginx_packages
+      retries: 40
+      delay: 15
+      until: nginx_packages is succeeded
+      when: inventory_hostname in groups['nginx']
+
+    - name: Nginxへ静的配信とAPIプロキシの設定を配置する
+      ansible.builtin.template:
+        src: templates/isucondition.nginx.conf.j2
+        dest: "/etc/nginx/sites-available/{{ nginx_site_name }}.conf"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Nginxを再読み込みする
+      when: inventory_hostname in groups['nginx']
+
+    - name: Nginxサイトを有効化する
+      ansible.builtin.file:
+        src: "/etc/nginx/sites-available/{{ nginx_site_name }}.conf"
+        dest: "/etc/nginx/sites-enabled/{{ nginx_site_name }}.conf"
+        state: link
+      notify: Nginxを再読み込みする
+      when: inventory_hostname in groups['nginx']
+
+    - name: Nginxの既定サイトを無効化する
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Nginxを再読み込みする
+      when: inventory_hostname in groups['nginx']
+
+    - name: Nginxを起動・自動起動にする
+      ansible.builtin.systemd:
+        name: nginx
+        state: started
+        enabled: true
+      when: inventory_hostname in groups['nginx']
+
     - name: Netdataを起動・自動起動にする
       ansible.builtin.systemd:
         name: "{{ netdata_service }}"
@@ -90,6 +134,11 @@
       when: inventory_hostname in groups['db']
 
   handlers:
+    - name: Nginxを再読み込みする
+      ansible.builtin.systemd:
+        name: nginx
+        state: reloaded
+
     - name: MariaDBを再起動する
       ansible.builtin.systemd:
         name: mariadb

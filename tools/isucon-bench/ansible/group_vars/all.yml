@@ -4,6 +4,12 @@
 remote_project_root: /home/isucon
 remote_log_root: /home/isucon/log
 app_working_dir: /home/isucon/webapp/go
+frontend_public_dir: /home/isucon/webapp/public
+nginx_site_name: isucondition
+nginx_listen_port: 80
+nginx_app_port: 3000
+# 複数台構成では nginx から最初の app ホストへ転送する。
+nginx_app_backend_host: "{{ hostvars[groups['app'][0]].ansible_host | default(groups['app'][0]) }}"
 
 git_repository: git@github.com:mumumu6/pisucon-2026.git
 git_version: main

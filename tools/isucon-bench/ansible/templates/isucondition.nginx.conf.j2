@@ -1,0 +1,38 @@
+server {
+    listen {{ nginx_listen_port }};
+    listen [::]:{{ nginx_listen_port }};
+    server_name _;
+
+    root {{ frontend_public_dir }};
+    index index.html;
+
+    # Vite がファイル名へ内容ハッシュを含めるため、長期キャッシュしてよい。
+    location ^~ /assets/ {
+        try_files $uri =404;
+        access_log off;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # 初期化と API だけを Go アプリケーションへ渡す。
+    location = /initialize {
+        proxy_pass http://{{ nginx_app_backend_host }}:{{ nginx_app_port }};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location ^~ /api/ {
+        proxy_pass http://{{ nginx_app_backend_host }}:{{ nginx_app_port }};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # React Router の画面URLは index.html へフォールバックする。
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
