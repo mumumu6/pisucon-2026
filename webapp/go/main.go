@@ -75,6 +75,11 @@ var (
 		values map[string]string
 	}{values: make(map[string]string)}
 
+	isuLatestTimestampCache = struct {
+		sync.RWMutex
+		values map[string]int64
+	}{values: make(map[string]int64)}
+
 	isuIconCache = struct {
 		sync.RWMutex
 		values map[string]isuIconCacheEntry
@@ -342,9 +347,9 @@ func getUserIDFromSession(c echo.Context) (string, int, error) {
 	return jiaUserID, 0, nil
 }
 
-func getJIAServiceURL(tx *sqlx.Tx) string {
+func getJIAServiceURL() string {
 	var url string
-	err := tx.Get(&url, "SELECT `url` FROM `isu_association_config` WHERE `name` = ?", "jia_service_url")
+	err := db.Get(&url, "SELECT `url` FROM `isu_association_config` WHERE `name` = ?", "jia_service_url")
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			log.Print(err)
@@ -390,6 +395,27 @@ func setCachedIsuOwner(jiaIsuUUID, jiaUserID string) {
 	isuOwnerCache.Lock()
 	isuOwnerCache.values[jiaIsuUUID] = jiaUserID
 	isuOwnerCache.Unlock()
+}
+
+func clearIsuLatestTimestampCache() {
+	isuLatestTimestampCache.Lock()
+	isuLatestTimestampCache.values = make(map[string]int64)
+	isuLatestTimestampCache.Unlock()
+}
+
+func getCachedIsuLatestTimestamp(jiaIsuUUID string) (int64, bool) {
+	isuLatestTimestampCache.RLock()
+	timestamp, ok := isuLatestTimestampCache.values[jiaIsuUUID]
+	isuLatestTimestampCache.RUnlock()
+	return timestamp, ok
+}
+
+func setCachedIsuLatestTimestamp(jiaIsuUUID string, timestamp int64) {
+	isuLatestTimestampCache.Lock()
+	if cachedTimestamp, ok := isuLatestTimestampCache.values[jiaIsuUUID]; !ok || timestamp > cachedTimestamp {
+		isuLatestTimestampCache.values[jiaIsuUUID] = timestamp
+	}
+	isuLatestTimestampCache.Unlock()
 }
 
 func clearIsuIconCache() {
@@ -442,6 +468,7 @@ func postInitialize(c echo.Context) error {
 	}
 	clearIsuExistenceCache()
 	clearIsuOwnerCache()
+	clearIsuLatestTimestampCache()
 	clearIsuIconCache()
 
 	_, err = db.Exec(
@@ -667,7 +694,24 @@ func postIsu(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	targetURL := getJIAServiceURL(tx) + "/api/activate"
+	// JIAへの通信前にcommitする。HTTP待ち中にisuの行・索引ロックを
+	// 保持すると、condition登録と競合するため。
+	err = tx.Commit()
+	if err != nil {
+		c.Logger().Errorf("db error: %v", err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	registered := false
+	defer func() {
+		if registered {
+			return
+		}
+		if _, err := db.Exec("DELETE FROM `isu` WHERE `jia_user_id` = ? AND `jia_isu_uuid` = ?", jiaUserID, jiaIsuUUID); err != nil {
+			c.Logger().Errorf("failed to roll back isu registration: %v", err)
+		}
+	}()
+
+	targetURL := getJIAServiceURL() + "/api/activate"
 	body := JIAServiceRequest{postIsuConditionTargetBaseURL, jiaIsuUUID}
 	bodyJSON, err := json.Marshal(body)
 	if err != nil {
@@ -707,14 +751,14 @@ func postIsu(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	_, err = tx.Exec("UPDATE `isu` SET `character` = ? WHERE  `jia_isu_uuid` = ?", isuFromJIA.Character, jiaIsuUUID)
+	_, err = db.Exec("UPDATE `isu` SET `character` = ? WHERE  `jia_isu_uuid` = ?", isuFromJIA.Character, jiaIsuUUID)
 	if err != nil {
 		c.Logger().Errorf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	var isu Isu
-	err = tx.Get(
+	err = db.Get(
 		&isu,
 		"SELECT `id`, `jia_isu_uuid`, `name`, `character` FROM `isu`"+
 			" WHERE `jia_user_id` = ? AND `jia_isu_uuid` = ?",
@@ -724,14 +768,10 @@ func postIsu(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	err = tx.Commit()
-	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
 	setCachedIsuExistence(jiaIsuUUID, true)
 	setCachedIsuOwner(jiaIsuUUID, jiaUserID)
 	setCachedIsuIcon(jiaIsuUUID, jiaUserID, image)
+	registered = true
 
 	return c.JSON(http.StatusCreated, isu)
 }
@@ -1395,21 +1435,28 @@ func postIsuCondition(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	_, err = tx.Exec(
-		"UPDATE `isu` SET `latest_timestamp` = ?, `latest_is_sitting` = ?, `latest_condition` = ?, `latest_message` = ?"+
-			" WHERE `jia_isu_uuid` = ? AND (`latest_timestamp` IS NULL OR `latest_timestamp` <= ?)",
-		time.Unix(latest.Timestamp, 0), latest.IsSitting, latest.Condition, latest.Message,
-		jiaIsuUUID, time.Unix(latest.Timestamp, 0),
-	)
-	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
+	cachedLatestTimestamp, latestTimestampCached := getCachedIsuLatestTimestamp(jiaIsuUUID)
+	updateLatest := !latestTimestampCached || latest.Timestamp >= cachedLatestTimestamp
+	if updateLatest {
+		_, err = tx.Exec(
+			"UPDATE `isu` SET `latest_timestamp` = ?, `latest_is_sitting` = ?, `latest_condition` = ?, `latest_message` = ?"+
+				" WHERE `jia_isu_uuid` = ? AND (`latest_timestamp` IS NULL OR `latest_timestamp` <= ?)",
+			time.Unix(latest.Timestamp, 0), latest.IsSitting, latest.Condition, latest.Message,
+			jiaIsuUUID, time.Unix(latest.Timestamp, 0),
+		)
+		if err != nil {
+			c.Logger().Errorf("db error: %v", err)
+			return c.NoContent(http.StatusInternalServerError)
+		}
 	}
 
 	err = tx.Commit()
 	if err != nil {
 		c.Logger().Errorf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
+	}
+	if updateLatest {
+		setCachedIsuLatestTimestamp(jiaIsuUUID, latest.Timestamp)
 	}
 
 	return c.NoContent(http.StatusAccepted)
