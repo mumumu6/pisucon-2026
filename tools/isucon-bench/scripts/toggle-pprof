@@ -26,5 +26,11 @@ if [ -e "$target" ] || git -C "$repository_root" ls-files --error-unmatch -- "$r
   git -C "$repository_root" add --all -- "$relative_target"
   if ! git -C "$repository_root" diff --cached --quiet -- "$relative_target"; then
     git -C "$repository_root" commit --only -m "$commit_message" -- "$relative_target"
+    branch="$(git -C "$repository_root" branch --show-current)"
+    if [ -z "$branch" ]; then
+      echo "現在のGitブランチを取得できません" >&2
+      exit 1
+    fi
+    git -C "$repository_root" push origin "$branch"
   fi
 fi
