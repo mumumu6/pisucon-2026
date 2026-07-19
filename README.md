@@ -35,17 +35,15 @@ inventoryでは各ホストを `app`、`db`、`nginx` に割り当てます。`r
 スコアの基準にするホストをちょうど1台指定します。同じホストを複数グループへ所属させられます。
 1台構成では1ホストをすべてのグループへ、3台構成では役割ごとに別ホストを指定します。
 
-### チームメンバーのSSH公開鍵
+### ISUCONサーバーへのSSH
 
-`group_vars/all.yml` の `team_ssh_public_keys` に、各メンバーの公開鍵を1行ずつ追加してから
-`make fleet-setup` または `make bootstrap` を実行します。公開鍵はGit管理して構いません。秘密鍵は
-絶対にここへ書かず、各メンバーの手元で管理します。既存の `authorized_keys` は削除しないため、
-Ansible実行でログイン用の既存鍵を誤って失うことはありません。
+主催側が、チームメンバー各自のGitHubアカウントに登録済みの公開鍵を `isucon` ユーザーへ
+配置します。`ssh-copy-id` やAnsibleでの `authorized_keys` 管理は不要です。大会前に各自の
+GitHub SSH認証を確認し、ポータルに表示されたIPへ接続します。
 
-```yaml
-team_ssh_public_keys:
-  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... alice@laptop"
-  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... bob@laptop"
+```bash
+ssh -T git@github.com
+ssh isucon@<ポータルに表示されたIP>
 ```
 
 ## 普段のベンチ運用
@@ -110,11 +108,11 @@ make finish
 ## サーバー再作成
 
 GitHub上のremote repositoryを先に作成し、`group_vars/all.yml` の
-`git_repository` と `remote_project_root` を設定します。その後、手元PCのssh-agentへ
-GitHubに接続できる鍵を登録します。
+`git_repository` と `remote_project_root` を設定します。private repositoryをcloneする場合は、
+手元PCのssh-agentへGitHubに接続できる鍵を登録します。
 
 ```bash
-ssh-add "$HOME/.ssh/pisucon-2026"
+ssh-add <GitHubに登録済みの秘密鍵>
 ssh -T git@github.com
 make bootstrap
 ```
@@ -137,25 +135,16 @@ make collect
 make finish
 ```
 
-### SSH鍵の作成と接続
+### SSH接続
 
 ```bash
-install -d -m 0700 "$HOME/.ssh"
-ssh-keygen -t ed25519 -f "$HOME/.ssh/pisucon-2026" -C "pisucon-2026"
-ssh-add "$HOME/.ssh/pisucon-2026"
-ssh-copy-id -i "$HOME/.ssh/pisucon-2026.pub" isucon@192.0.2.11
-ssh -i "$HOME/.ssh/pisucon-2026" isucon@192.0.2.11
+ssh -T git@github.com
+ssh isucon@<ポータルに表示されたIP>
 ```
 
-秘密鍵は手元PCだけに置き、サーバーやGit repositoryへ保存しません。inventoryへ指定する
-場合も鍵の内容ではなく、手元PC上のパスを書きます。
-
-```yaml
-all:
-  vars:
-    ansible_user: isucon
-    ansible_ssh_private_key_file: ~/.ssh/pisucon-2026
-```
+サーバー用に鍵をコピー・登録する必要はありません。GitHubへ登録する公開鍵と対になる
+秘密鍵は、各メンバーの手元PCだけで管理します。SSH鍵をまだ作っていない場合だけ、GitHubの
+案内に従って作成・登録してください。
 
 ### Ansibleの確認
 

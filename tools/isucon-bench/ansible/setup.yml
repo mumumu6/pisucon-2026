@@ -8,26 +8,6 @@
       x86_64: amd64
       aarch64: arm64
   tasks:
-    - name: Create the managed user's SSH directory
-      ansible.builtin.file:
-        path: "/home/{{ ansible_user }}/.ssh"
-        state: directory
-        owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
-        mode: "0700"
-      when: (team_ssh_public_keys | default([])) | length > 0
-
-    - name: Authorize team SSH public keys
-      ansible.builtin.lineinfile:
-        path: "/home/{{ ansible_user }}/.ssh/authorized_keys"
-        line: "{{ item }}"
-        regexp: "^{{ item | regex_escape }}$"
-        create: true
-        owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
-        mode: "0600"
-      loop: "{{ team_ssh_public_keys | default([]) }}"
-
     - name: Install system packages
       ansible.builtin.apt:
         name:

@@ -1,7 +1,7 @@
 ---
 # 全管理対象ホストで共有する非秘密設定。制御用リポジトリを新規cloneした場合も同じ構成を再現できるよう、Git管理します。
 
-remote_project_root: /home/isucon/pisucon-2026
+remote_project_root: /home/
 remote_log_root: /home/isucon/log
 
 git_repository: git@github.com:mumumu6/pisucon-2026.git
@@ -10,8 +10,8 @@ git_user_name: mumumu6
 git_user_email: takumu.sato@gmail.com
 
 # アプリ固有の操作。
-build_command: make build-app
-restart_command: sudo systemctl restart your-app.service
+build_command: go build -o isucondition .
+restart_command: sudo systemctl restart isucondition.go.service
 
 # ログと解析ツール。
 access_log: /var/log/nginx/access.log
@@ -43,7 +43,3 @@ local_log_root: ~/log
 github_repository: mumumu6/pisucon-2026
 create_github_issue: true
 fleet_auto_publish: false
-
-# 公開鍵はコミットして構いません。秘密鍵はここへ書きません。
-# setup.yml は既存の authorized_keys を削除せず、ここに指定した鍵を追加します。
-team_ssh_public_keys: []
