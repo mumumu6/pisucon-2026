@@ -76,6 +76,13 @@
             - inventory_hostname in groups['app']
             - restart_command | length > 0
 
+        - name: ベンチ前にNginxを再起動する
+          ansible.builtin.systemd:
+            name: nginx
+            state: restarted
+          become: true
+          when: inventory_hostname in groups['nginx']
+
         - name: 計測中のnetdataを起動する
           ansible.builtin.systemd:
             name: "{{ netdata_service }}"

@@ -8,6 +8,7 @@ frontend_public_dir: /home/isucon/webapp/public
 nginx_site_name: isucondition
 nginx_listen_port: 80
 nginx_app_port: 3000
+nginx_worker_connections: 65535
 # 現在はappとnginxが同一ホストなので、パブリックIPへの折り返しを避ける。
 nginx_app_backend_host: 127.0.0.1
 

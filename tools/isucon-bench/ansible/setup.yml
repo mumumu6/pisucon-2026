@@ -106,6 +106,14 @@
       until: nginx_packages is succeeded
       when: inventory_hostname in groups['nginx']
 
+    - name: Nginxのworker接続数を設定する
+      ansible.builtin.replace:
+        path: /etc/nginx/nginx.conf
+        regexp: 'worker_connections\s+\d+;'
+        replace: 'worker_connections {{ nginx_worker_connections }};'
+      notify: Nginxを再起動する
+      when: inventory_hostname in groups['nginx']
+
     - name: Nginxへ静的配信とAPIプロキシの設定を配置する
       ansible.builtin.template:
         src: templates/isucondition.nginx.conf.j2
@@ -113,7 +121,7 @@
         owner: root
         group: root
         mode: "0644"
-      notify: Nginxを再読み込みする
+      notify: Nginxを再起動する
       when: inventory_hostname in groups['nginx']
 
     - name: Nginxサイトを有効化する
@@ -121,14 +129,14 @@
         src: "/etc/nginx/sites-available/{{ nginx_site_name }}.conf"
         dest: "/etc/nginx/sites-enabled/{{ nginx_site_name }}.conf"
         state: link
-      notify: Nginxを再読み込みする
+      notify: Nginxを再起動する
       when: inventory_hostname in groups['nginx']
 
     - name: Nginxの既定サイトを無効化する
       ansible.builtin.file:
         path: /etc/nginx/sites-enabled/default
         state: absent
-      notify: Nginxを再読み込みする
+      notify: Nginxを再起動する
       when: inventory_hostname in groups['nginx']
 
     - name: Nginxを起動・自動起動にする
@@ -159,10 +167,10 @@
         daemon_reload: true
         state: restarted
 
-    - name: Nginxを再読み込みする
+    - name: Nginxを再起動する
       ansible.builtin.systemd:
         name: nginx
-        state: reloaded
+        state: restarted
 
     - name: MariaDBを再起動する
       ansible.builtin.systemd:

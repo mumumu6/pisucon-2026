@@ -64,7 +64,7 @@ make publish DIR=20260719-123000
 
 `make bench` は次の順に処理します。
 
-1. appホストでビルド・再起動
+1. appホストでビルド・再起動、nginxホストで再起動
 2. nginxとMySQLの対象ログを初期化
 3. pprof取得を開始
 4. ターミナルで待機
