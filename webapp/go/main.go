@@ -673,44 +673,8 @@ func postIsu(c echo.Context) error {
 		}
 	}
 
-	tx, err := db.Beginx()
-	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	defer tx.Rollback()
-
-	_, err = tx.Exec("INSERT INTO `isu`"+
-		"	(`jia_isu_uuid`, `name`, `image`, `jia_user_id`, `character`) VALUES (?, ?, ?, ?, '')",
-		jiaIsuUUID, isuName, image, jiaUserID)
-	if err != nil {
-		mysqlErr, ok := err.(*mysql.MySQLError)
-
-		if ok && mysqlErr.Number == uint16(mysqlErrNumDuplicateEntry) {
-			return c.String(http.StatusConflict, "duplicated: isu")
-		}
-
-		c.Logger().Errorf("db error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-
-	// JIAへの通信前にcommitする。HTTP待ち中にisuの行・索引ロックを
-	// 保持すると、condition登録と競合するため。
-	err = tx.Commit()
-	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	registered := false
-	defer func() {
-		if registered {
-			return
-		}
-		if _, err := db.Exec("DELETE FROM `isu` WHERE `jia_user_id` = ? AND `jia_isu_uuid` = ?", jiaUserID, jiaIsuUUID); err != nil {
-			c.Logger().Errorf("failed to roll back isu registration: %v", err)
-		}
-	}()
-
+	// JIAへの通信を先に完了させ、characterを含むISU行を短い
+	// トランザクションで一度に公開する。
 	targetURL := getJIAServiceURL() + "/api/activate"
 	body := JIAServiceRequest{postIsuConditionTargetBaseURL, jiaIsuUUID}
 	bodyJSON, err := json.Marshal(body)
@@ -751,14 +715,29 @@ func postIsu(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	_, err = db.Exec("UPDATE `isu` SET `character` = ? WHERE  `jia_isu_uuid` = ?", isuFromJIA.Character, jiaIsuUUID)
+	tx, err := db.Beginx()
 	if err != nil {
+		c.Logger().Errorf("db error: %v", err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec("INSERT INTO `isu`"+
+		"	(`jia_isu_uuid`, `name`, `image`, `jia_user_id`, `character`) VALUES (?, ?, ?, ?, ?)",
+		jiaIsuUUID, isuName, image, jiaUserID, isuFromJIA.Character)
+	if err != nil {
+		mysqlErr, ok := err.(*mysql.MySQLError)
+
+		if ok && mysqlErr.Number == uint16(mysqlErrNumDuplicateEntry) {
+			return c.String(http.StatusConflict, "duplicated: isu")
+		}
+
 		c.Logger().Errorf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	var isu Isu
-	err = db.Get(
+	err = tx.Get(
 		&isu,
 		"SELECT `id`, `jia_isu_uuid`, `name`, `character` FROM `isu`"+
 			" WHERE `jia_user_id` = ? AND `jia_isu_uuid` = ?",
@@ -767,11 +746,15 @@ func postIsu(c echo.Context) error {
 		c.Logger().Errorf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	err = tx.Commit()
+	if err != nil {
+		c.Logger().Errorf("db error: %v", err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
 
 	setCachedIsuExistence(jiaIsuUUID, true)
 	setCachedIsuOwner(jiaIsuUUID, jiaUserID)
 	setCachedIsuIcon(jiaIsuUUID, jiaUserID, image)
-	registered = true
 
 	return c.JSON(http.StatusCreated, isu)
 }
