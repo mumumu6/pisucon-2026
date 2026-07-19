@@ -70,6 +70,11 @@ var (
 		values map[string]bool
 	}{values: make(map[string]bool)}
 
+	isuOwnerCache = struct {
+		sync.RWMutex
+		values map[string]string
+	}{values: make(map[string]string)}
+
 	isuIconCache = struct {
 		sync.RWMutex
 		values map[string]isuIconCacheEntry
@@ -368,6 +373,25 @@ func setCachedIsuExistence(jiaIsuUUID string, exists bool) {
 	isuExistenceCache.Unlock()
 }
 
+func clearIsuOwnerCache() {
+	isuOwnerCache.Lock()
+	isuOwnerCache.values = make(map[string]string)
+	isuOwnerCache.Unlock()
+}
+
+func getCachedIsuOwner(jiaIsuUUID string) (string, bool) {
+	isuOwnerCache.RLock()
+	jiaUserID, ok := isuOwnerCache.values[jiaIsuUUID]
+	isuOwnerCache.RUnlock()
+	return jiaUserID, ok
+}
+
+func setCachedIsuOwner(jiaIsuUUID, jiaUserID string) {
+	isuOwnerCache.Lock()
+	isuOwnerCache.values[jiaIsuUUID] = jiaUserID
+	isuOwnerCache.Unlock()
+}
+
 func clearIsuIconCache() {
 	isuIconCache.Lock()
 	isuIconCache.values = make(map[string]isuIconCacheEntry)
@@ -408,6 +432,7 @@ func postInitialize(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	clearIsuExistenceCache()
+	clearIsuOwnerCache()
 	clearIsuIconCache()
 
 	_, err = db.Exec(
@@ -532,6 +557,7 @@ func getIsuList(c echo.Context) error {
 
 	responseList := make([]GetIsuListResponse, 0, len(isuList))
 	for _, isu := range isuList {
+		setCachedIsuOwner(isu.JIAIsuUUID, jiaUserID)
 		var formattedCondition *GetIsuConditionResponse
 		if isu.LatestTimestamp.Valid {
 			conditionLevel, err := calculateConditionLevel(isu.LatestCondition.String)
@@ -695,6 +721,7 @@ func postIsu(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	setCachedIsuExistence(jiaIsuUUID, true)
+	setCachedIsuOwner(jiaIsuUUID, jiaUserID)
 	setCachedIsuIcon(jiaIsuUUID, jiaUserID, image)
 
 	return c.JSON(http.StatusCreated, isu)
@@ -727,6 +754,7 @@ func getIsuID(c echo.Context) error {
 		c.Logger().Errorf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	setCachedIsuOwner(jiaIsuUUID, jiaUserID)
 
 	return c.JSON(http.StatusOK, res)
 }
@@ -761,6 +789,7 @@ func getIsuIcon(c echo.Context) error {
 		c.Logger().Errorf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	setCachedIsuOwner(jiaIsuUUID, jiaUserID)
 	setCachedIsuIcon(jiaIsuUUID, jiaUserID, image)
 
 	return c.Blob(http.StatusOK, "", image)
@@ -790,15 +819,23 @@ func getIsuGraph(c echo.Context) error {
 	}
 	date := time.Unix(datetimeInt64, 0).Truncate(time.Hour)
 
-	var count int
-	err = db.Get(&count, "SELECT COUNT(*) FROM `isu` WHERE `jia_user_id` = ? AND `jia_isu_uuid` = ?",
-		jiaUserID, jiaIsuUUID)
-	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	if count == 0 {
-		return c.String(http.StatusNotFound, "not found: isu")
+	owner, cached := getCachedIsuOwner(jiaIsuUUID)
+	if cached {
+		if owner != jiaUserID {
+			return c.String(http.StatusNotFound, "not found: isu")
+		}
+	} else {
+		var count int
+		err = db.Get(&count, "SELECT COUNT(*) FROM `isu` WHERE `jia_user_id` = ? AND `jia_isu_uuid` = ?",
+			jiaUserID, jiaIsuUUID)
+		if err != nil {
+			c.Logger().Errorf("db error: %v", err)
+			return c.NoContent(http.StatusInternalServerError)
+		}
+		if count == 0 {
+			return c.String(http.StatusNotFound, "not found: isu")
+		}
+		setCachedIsuOwner(jiaIsuUUID, jiaUserID)
 	}
 
 	res, err := generateIsuGraphResponse(db, jiaIsuUUID, date)
@@ -817,14 +854,16 @@ func generateIsuGraphResponse(db *sqlx.DB, jiaIsuUUID string, graphDate time.Tim
 	timestampsInThisHour := []int64{}
 	var startTimeInThisHour time.Time
 	var condition IsuCondition
+	endTime := graphDate.Add(time.Hour * 24)
 
 	rows, err := db.Queryx(
-		"SELECT `timestamp`, `is_sitting`, `condition` FROM `isu_condition` WHERE `jia_isu_uuid` = ? ORDER BY `timestamp` ASC",
-		jiaIsuUUID,
+		"SELECT `timestamp`, `is_sitting`, `condition` FROM `isu_condition` WHERE `jia_isu_uuid` = ? AND `timestamp` >= ? AND `timestamp` < ? ORDER BY `timestamp` ASC",
+		jiaIsuUUID, graphDate, endTime,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("db error: %v", err)
 	}
+	defer rows.Close()
 
 	for rows.Next() {
 		err = rows.StructScan(&condition)
@@ -870,21 +909,8 @@ func generateIsuGraphResponse(db *sqlx.DB, jiaIsuUUID string, graphDate time.Tim
 				ConditionTimestamps: timestampsInThisHour})
 	}
 
-	endTime := graphDate.Add(time.Hour * 24)
-	startIndex := len(dataPoints)
-	endNextIndex := len(dataPoints)
-	for i, graph := range dataPoints {
-		if startIndex == len(dataPoints) && !graph.StartAt.Before(graphDate) {
-			startIndex = i
-		}
-		if endNextIndex == len(dataPoints) && graph.StartAt.After(endTime) {
-			endNextIndex = i
-		}
-	}
-
-	filteredDataPoints := []GraphDataPointWithInfo{}
-	if startIndex < endNextIndex {
-		filteredDataPoints = dataPoints[startIndex:endNextIndex]
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	responseList := []GraphResponse{}
@@ -895,8 +921,8 @@ func generateIsuGraphResponse(db *sqlx.DB, jiaIsuUUID string, graphDate time.Tim
 		var data *GraphDataPoint
 		timestamps := []int64{}
 
-		if index < len(filteredDataPoints) {
-			dataWithInfo := filteredDataPoints[index]
+		if index < len(dataPoints) {
+			dataWithInfo := dataPoints[index]
 
 			if dataWithInfo.StartAt.Equal(thisTime) {
 				data = &dataWithInfo.Data
