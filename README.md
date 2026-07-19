@@ -87,15 +87,15 @@ make publish DIR=20260719-123000
 
 nginx access log、MySQL slow log、netdataの生JSONは解析後に削除します。
 
-`cpu.pprof` を図で見るときは、手元PCで直接開きます。
+`make bench` の回収完了後、取得したセッションの最新 `cpu.pprof` は自動で
+`http://localhost:6070` のビューへ反映されます。過去の計測結果を開き直すときは、次を実行します。
 
 ```bash
 make pprof-view
 make pprof-view SESSION=20260719-123000
 ```
 
-コマンド実行後、必要なときにブラウザで `http://localhost:6070` を開くと、Graph と
-Flame Graphを確認できます。
+コマンド実行後、ブラウザで `http://localhost:6070` を開くと、Graph と Flame Graphを確認できます。
 GitHub Issueは手元PCの `gh` から作成するため、競技サーバーにGitHubトークンは置きません。
 初回だけ手元PCで `gh auth login` を実行してください。
 

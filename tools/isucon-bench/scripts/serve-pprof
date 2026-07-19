@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+session="${1:-}"
+search_dir="$repository_root/log${session:+/$session}"
+pid_file="$repository_root/log/.pprof-view.pid"
+output_file="$repository_root/log/.pprof-view.log"
+
+test -d "$search_dir" || {
+  echo "profile directory not found: $search_dir" >&2
+  exit 1
+}
+
+profile="$(find "$search_dir" -type f -name cpu.pprof -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
+test -n "$profile" || {
+  echo "cpu.pprof not found below $search_dir" >&2
+  exit 1
+}
+
+# Stop only a pprof viewer previously started for this port.  This also
+# replaces a viewer started with the former foreground `make pprof-view`.
+old_pids="$(pgrep -f 'pprof -http=:6070' || true)"
+if [[ -n "$old_pids" ]]; then
+  kill $old_pids 2>/dev/null || true
+fi
+
+setsid go tool pprof -http=:6070 -no_browser "$profile" >"$output_file" 2>&1 < /dev/null &
+echo $! >"$pid_file"
+
+for _ in {1..20}; do
+  if ss -ltn 2>/dev/null | grep -qE '127\.0\.0\.1:6070|\[::1\]:6070|\*:6070'; then
+    echo "Updated http://localhost:6070 with $profile"
+    exit 0
+  fi
+  sleep 0.1
+done
+
+echo "pprof viewer did not start; see $output_file" >&2
+exit 1

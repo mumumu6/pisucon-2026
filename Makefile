@@ -4,6 +4,7 @@ INVENTORY := tools/isucon-bench/ansible/inventory.yml
 PLAYBOOK := ansible-playbook --inventory $(INVENTORY)
 PUBLISH_SCRIPT := tools/isucon-bench/scripts/publish
 PPROF_SCRIPT := tools/isucon-bench/scripts/toggle-pprof
+PPROF_VIEW_SCRIPT := tools/isucon-bench/scripts/serve-pprof
 NETDATA_SCRIPT := tools/isucon-bench/scripts/netdata-view
 BENCH_SESSION ?= $(shell date +%Y%m%d-%H%M%S)
 
@@ -41,13 +42,8 @@ instrument-off: ## appホストからpprofを削除し、ビルド・再起動�
 	@$(PPROF_SCRIPT) off
 	@$(PLAYBOOK) --extra-vars instrument_state=off tools/isucon-bench/ansible/instrument.yml
 
-pprof-view: ## 最新のCPUプロファイルをブラウザで開く。例: make pprof-view SESSION=20260719-123000
-	@search_dir="log$(if $(SESSION),/$(SESSION),)"; \
-	test -d "$$search_dir" || { echo "profile directory not found: $$search_dir" >&2; exit 1; }; \
-	profile="$$(find "$$search_dir" -type f -name cpu.pprof -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"; \
-	test -n "$$profile" || { echo "cpu.pprof not found below $$search_dir" >&2; exit 1; }; \
-	echo "Opening $$profile on http://localhost:6070"; \
-	go tool pprof -http=:6070 -no_browser "$$profile"
+pprof-view: ## 最新のCPUプロファイルをlocalhost:6070へ反映する。例: make pprof-view SESSION=20260719-123000
+	@$(PPROF_VIEW_SCRIPT) "$(SESSION)"
 
 netdata-view: ## NetdataへのSSHトンネルを張る。複数台構成の例: make netdata-view HOST=isucon-2
 	@$(NETDATA_SCRIPT) "$(HOST)"
@@ -57,6 +53,7 @@ bench: ## 計測・解析・回収を行う。Issue投稿: make bench PUBLISH=tr
 	$(PLAYBOOK) --extra-vars "session_id=$(BENCH_SESSION) requested_session=$(BENCH_SESSION)" tools/isucon-bench/ansible/bench.yml || status=$$?; \
 	$(PLAYBOOK) --extra-vars "requested_session=$(BENCH_SESSION)" tools/isucon-bench/ansible/collect.yml || exit $$?; \
 	if [ $$status -ne 0 ]; then exit $$status; fi; \
+	$(MAKE) --no-print-directory pprof-view SESSION=$(BENCH_SESSION); \
 	if [ "$(PUBLISH)" = true ]; then $(PUBLISH_SCRIPT) "$(BENCH_SESSION)"; fi
 
 collect: ## 結果だけ再取得する。例: make collect SESSION=20260719-123000
