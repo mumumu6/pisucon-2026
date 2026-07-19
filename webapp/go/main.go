@@ -1070,79 +1070,66 @@ func calculateConditionLevel(condition string) (string, error) {
 // GET /api/trend
 // ISUの性格毎の最新のコンディション情報
 func getTrend(c echo.Context) error {
-	characterList := []Isu{}
-	err := db.Select(&characterList, "SELECT `character` FROM `isu` GROUP BY `character`")
+	type trendRow struct {
+		IsuID     int       `db:"isu_id"`
+		Character string    `db:"character"`
+		Timestamp time.Time `db:"timestamp"`
+		Condition string    `db:"condition"`
+	}
+
+	rows := []trendRow{}
+	err := db.Select(&rows, `
+		WITH latest_timestamp_by_isu AS (
+			SELECT jia_isu_uuid, MAX(timestamp) AS timestamp
+			FROM isu_condition
+			GROUP BY jia_isu_uuid
+		)
+		SELECT isu.id AS isu_id, isu.character, ic.timestamp, ic.condition
+		FROM latest_timestamp_by_isu AS latest
+		JOIN isu
+			ON isu.jia_isu_uuid = latest.jia_isu_uuid
+		JOIN isu_condition AS ic
+			ON ic.jia_isu_uuid = latest.jia_isu_uuid
+			AND ic.timestamp = latest.timestamp
+		ORDER BY isu.character`)
 	if err != nil {
 		c.Logger().Errorf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	res := []TrendResponse{}
+	trendByCharacter := map[string]*TrendResponse{}
+	for _, row := range rows {
+		trend, ok := trendByCharacter[row.Character]
+		if !ok {
+			trend = &TrendResponse{Character: row.Character}
+			trendByCharacter[row.Character] = trend
+			res = append(res, *trend)
+		}
 
-	for _, character := range characterList {
-		isuList := []Isu{}
-		err = db.Select(&isuList,
-			"SELECT * FROM `isu` WHERE `character` = ?",
-			character.Character,
-		)
+		conditionLevel, err := calculateConditionLevel(row.Condition)
 		if err != nil {
-			c.Logger().Errorf("db error: %v", err)
+			c.Logger().Error(err)
 			return c.NoContent(http.StatusInternalServerError)
 		}
-
-		characterInfoIsuConditions := []*TrendCondition{}
-		characterWarningIsuConditions := []*TrendCondition{}
-		characterCriticalIsuConditions := []*TrendCondition{}
-		for _, isu := range isuList {
-			conditions := []IsuCondition{}
-			err = db.Select(&conditions,
-				"SELECT `timestamp`, `condition` FROM `isu_condition` WHERE `jia_isu_uuid` = ? ORDER BY timestamp DESC LIMIT 1",
-				isu.JIAIsuUUID,
-			)
-			if err != nil {
-				c.Logger().Errorf("db error: %v", err)
-				return c.NoContent(http.StatusInternalServerError)
-			}
-
-			if len(conditions) > 0 {
-				isuLastCondition := conditions[0]
-				conditionLevel, err := calculateConditionLevel(isuLastCondition.Condition)
-				if err != nil {
-					c.Logger().Error(err)
-					return c.NoContent(http.StatusInternalServerError)
-				}
-				trendCondition := TrendCondition{
-					ID:        isu.ID,
-					Timestamp: isuLastCondition.Timestamp.Unix(),
-				}
-				switch conditionLevel {
-				case "info":
-					characterInfoIsuConditions = append(characterInfoIsuConditions, &trendCondition)
-				case "warning":
-					characterWarningIsuConditions = append(characterWarningIsuConditions, &trendCondition)
-				case "critical":
-					characterCriticalIsuConditions = append(characterCriticalIsuConditions, &trendCondition)
-				}
-			}
-
+		trendCondition := &TrendCondition{ID: row.IsuID, Timestamp: row.Timestamp.Unix()}
+		switch conditionLevel {
+		case conditionLevelInfo:
+			trend.Info = append(trend.Info, trendCondition)
+		case conditionLevelWarning:
+			trend.Warning = append(trend.Warning, trendCondition)
+		case conditionLevelCritical:
+			trend.Critical = append(trend.Critical, trendCondition)
 		}
+	}
 
-		sort.Slice(characterInfoIsuConditions, func(i, j int) bool {
-			return characterInfoIsuConditions[i].Timestamp > characterInfoIsuConditions[j].Timestamp
-		})
-		sort.Slice(characterWarningIsuConditions, func(i, j int) bool {
-			return characterWarningIsuConditions[i].Timestamp > characterWarningIsuConditions[j].Timestamp
-		})
-		sort.Slice(characterCriticalIsuConditions, func(i, j int) bool {
-			return characterCriticalIsuConditions[i].Timestamp > characterCriticalIsuConditions[j].Timestamp
-		})
-		res = append(res,
-			TrendResponse{
-				Character: character.Character,
-				Info:      characterInfoIsuConditions,
-				Warning:   characterWarningIsuConditions,
-				Critical:  characterCriticalIsuConditions,
-			})
+	// mapに保持しているレスポンスを、返却用のスライスへ反映する。
+	for i := range res {
+		trend := trendByCharacter[res[i].Character]
+		sort.Slice(trend.Info, func(i, j int) bool { return trend.Info[i].Timestamp > trend.Info[j].Timestamp })
+		sort.Slice(trend.Warning, func(i, j int) bool { return trend.Warning[i].Timestamp > trend.Warning[j].Timestamp })
+		sort.Slice(trend.Critical, func(i, j int) bool { return trend.Critical[i].Timestamp > trend.Critical[j].Timestamp })
+		res[i] = *trend
 	}
 
 	return c.JSON(http.StatusOK, res)
