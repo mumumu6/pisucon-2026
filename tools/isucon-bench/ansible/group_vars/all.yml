@@ -20,7 +20,7 @@ access_log_format: ltsv
 alp_options: []
 mysql_admin_command: mysql
 mysql_slow_query_time: 0
-slow_log: /var/log/mysql/mysql-slow.log
+slow_log: /var/log/mysql/mariadb-slow.log
 pt_query_digest_options: []
 
 # Goプロファイリング。待受先はlocalhostに限定します。

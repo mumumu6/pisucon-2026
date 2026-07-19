@@ -81,6 +81,7 @@
           ansible.builtin.stat:
             path: "{{ access_log }}"
           register: access_log_stat
+          become: true
           when: inventory_hostname in groups['nginx']
 
         - name: ベンチ前にnginxのaccess logを空にする
@@ -92,13 +93,14 @@
             - inventory_hostname in groups['nginx']
             - access_log_stat.stat.exists | default(false)
 
-        - name: MySQLのslow query logを確認する
+        - name: MariaDBのスロークエリログを確認する
           ansible.builtin.stat:
             path: "{{ slow_log }}"
           register: slow_log_stat
+          become: true
           when: inventory_hostname in groups['db']
 
-        - name: ベンチ前にMySQLのslow query logを空にする
+        - name: ベンチ前にMariaDBのスロークエリログを空にする
           ansible.builtin.command:
             argv: [truncate, -s, "0", "{{ slow_log }}"]
           become: true
@@ -107,7 +109,7 @@
             - inventory_hostname in groups['db']
             - slow_log_stat.stat.exists | default(false)
 
-        - name: MySQLのslow query logが有効であることを確認する
+        - name: MariaDBのスロークエリログが有効であることを確認する
           ansible.builtin.command:
             argv:
               - "{{ mysql_admin_command }}"
@@ -253,7 +255,7 @@
             - inventory_hostname in groups['nginx']
             - access_log_stat.stat.exists | default(false)
 
-        - name: MySQLのslow query logを計測結果へコピーする
+        - name: MariaDBのスロークエリログを計測結果へコピーする
           ansible.builtin.copy:
             src: "{{ slow_log }}"
             dest: "{{ session_dir }}/mysql-slow.log"
@@ -283,7 +285,7 @@
             mode: "0644"
           when: inventory_hostname in groups['nginx']
 
-        - name: MySQLのslow query logを解析する
+        - name: MariaDBのスロークエリログを解析する
           ansible.builtin.command:
             argv: >-
               {{ ['pt-query-digest', '--limit', '20'] + pt_query_digest_options +

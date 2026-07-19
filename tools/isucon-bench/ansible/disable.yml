@@ -9,7 +9,7 @@
         state: stopped
         enabled: false
 
-- name: MySQLのslow query logを無効にする
+- name: MariaDBのスロークエリログを無効にする
   hosts: db
   become: true
   tasks:

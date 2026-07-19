@@ -9,7 +9,7 @@
         state: started
         enabled: true
 
-- name: MySQLのslow query logを有効にする
+- name: MariaDBのスロークエリログを有効にする
   hosts: db
   become: true
   tasks:
