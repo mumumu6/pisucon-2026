@@ -414,6 +414,15 @@ func setCachedIsuIcon(jiaIsuUUID, jiaUserID string, image []byte) {
 	isuIconCache.Unlock()
 }
 
+// setCachedIsuIconAsync keeps cache population off the icon response path.
+func setCachedIsuIconAsync(jiaIsuUUID, jiaUserID string, image []byte) {
+	go func() {
+		isuIconCache.Lock()
+		defer isuIconCache.Unlock()
+		isuIconCache.values[jiaIsuUUID] = isuIconCacheEntry{jiaUserID: jiaUserID, image: image}
+	}()
+}
+
 // POST /initialize
 // サービスを初期化
 func postInitialize(c echo.Context) error {
@@ -790,7 +799,7 @@ func getIsuIcon(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	setCachedIsuOwner(jiaIsuUUID, jiaUserID)
-	setCachedIsuIcon(jiaIsuUUID, jiaUserID, image)
+	setCachedIsuIconAsync(jiaIsuUUID, jiaUserID, image)
 
 	return c.Blob(http.StatusOK, "", image)
 }
