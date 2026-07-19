@@ -5,6 +5,7 @@
   "oxc.path.node": "/home/mumumu/.local/share/mise/shims/node",
   "go.goroot": "/home/mumumu/.local/share/mise/installs/go/1.26.5",
   "go.alternateTools": {
-    "go": "/home/mumumu/.local/share/mise/shims/go"
+    "go": "/home/mumumu/.local/share/mise/shims/go",
+    "dlv": "/home/mumumu/.local/share/mise/shims/dlv"
   }
 }

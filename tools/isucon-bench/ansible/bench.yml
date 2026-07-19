@@ -1,0 +1,402 @@
+---
+- name: Orchestrate an ISUCON benchmark across the fleet
+  hosts: all
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    alp_options: []
+    pt_query_digest_options: []
+    session_dir: "{{ remote_log_root }}/{{ session_id }}/{{ inventory_hostname }}"
+
+  pre_tasks:
+    - name: Validate benchmark inputs and inventory
+      ansible.builtin.assert:
+        that:
+          - session_id is match('^[0-9]{8}-[0-9]{6}$')
+          - groups.get('reporter', []) | length == 1
+          - groups.get('app', []) | length > 0
+          - groups.get('db', []) | length > 0
+          - groups.get('nginx', []) | length > 0
+          - remote_project_root is defined
+          - remote_log_root is defined
+        fail_msg: >-
+          inventory must define exactly one reporter, and non-empty app, db and
+          nginx groups together with remote_project_root and remote_log_root
+      when: inventory_hostname == ansible_play_hosts_all[0]
+
+    - name: Create the remote per-host session directory
+      ansible.builtin.file:
+        path: "{{ session_dir }}"
+        state: directory
+        mode: "0755"
+
+  tasks:
+    - name: Run benchmark with guaranteed cleanup and analysis
+      block:
+        - name: Read the deployed Git revision
+          ansible.builtin.command:
+            argv: [git, rev-parse, HEAD]
+            chdir: "{{ remote_project_root }}"
+          register: deployed_revision
+          changed_when: false
+          failed_when: false
+          when: inventory_hostname in groups['reporter']
+
+        - name: Save the deployed Git revision
+          ansible.builtin.copy:
+            content: "{{ deployed_revision.stdout | default('unknown', true) }}\n"
+            dest: "{{ session_dir }}/git-revision.txt"
+            mode: "0644"
+          when: inventory_hostname in groups['reporter']
+
+        - name: Build the application on app hosts
+          ansible.builtin.command:
+            argv: [/bin/bash, -lc, "{{ build_command }}"]
+            chdir: "{{ remote_project_root }}"
+          changed_when: true
+          when:
+            - inventory_hostname in groups['app']
+            - build_command | length > 0
+
+        - name: Restart the application on app hosts
+          ansible.builtin.command:
+            argv: [/bin/bash, -lc, "{{ restart_command }}"]
+            chdir: "{{ remote_project_root }}"
+          changed_when: true
+          when:
+            - inventory_hostname in groups['app']
+            - restart_command | length > 0
+
+        - name: Start netdata for the measurement window
+          ansible.builtin.systemd:
+            name: "{{ netdata_service }}"
+            state: started
+            enabled: true
+          become: true
+          when: netdata_enabled | bool
+
+        - name: Inspect nginx access logs
+          ansible.builtin.stat:
+            path: "{{ access_log }}"
+          register: access_log_stat
+          when: inventory_hostname in groups['nginx']
+
+        - name: Reset nginx access logs before the benchmark
+          ansible.builtin.command:
+            argv: [truncate, -s, "0", "{{ access_log }}"]
+          become: true
+          changed_when: true
+          when:
+            - inventory_hostname in groups['nginx']
+            - access_log_stat.stat.exists | default(false)
+
+        - name: Inspect MySQL slow-query logs
+          ansible.builtin.stat:
+            path: "{{ slow_log }}"
+          register: slow_log_stat
+          when: inventory_hostname in groups['db']
+
+        - name: Reset MySQL slow-query logs before the benchmark
+          ansible.builtin.command:
+            argv: [truncate, -s, "0", "{{ slow_log }}"]
+          become: true
+          changed_when: true
+          when:
+            - inventory_hostname in groups['db']
+            - slow_log_stat.stat.exists | default(false)
+
+        - name: Ensure MySQL slow-query logging is enabled
+          ansible.builtin.command:
+            argv:
+              - "{{ mysql_admin_command }}"
+              - "--execute=SET GLOBAL long_query_time={{ mysql_slow_query_time }}; SET GLOBAL slow_query_log='ON';"
+          become: true
+          changed_when: true
+          when: inventory_hostname in groups['db']
+
+        - name: Wait until the browser is ready to start the benchmark
+          ansible.builtin.pause:
+            prompt: >-
+              Preparation is complete. Open the benchmark start screen, then
+              press Enter to arm profiling
+          when: inventory_hostname == groups['reporter'][0]
+
+        - name: Record measurement start epoch
+          ansible.builtin.command:
+            argv: [date, +%s]
+          register: benchmark_started_epoch
+          changed_when: false
+
+        - name: Record human-readable measurement start time
+          ansible.builtin.command:
+            argv: [date, --iso-8601=seconds]
+          register: benchmark_started_at
+          changed_when: false
+
+        - name: Save human-readable measurement start time
+          ansible.builtin.copy:
+            content: "{{ benchmark_started_at.stdout }}\n"
+            dest: "{{ session_dir }}/started-at.txt"
+            mode: "0644"
+
+        - name: Start CPU profile capture on app hosts
+          ansible.builtin.command:
+            argv:
+              - curl
+              - --fail
+              - --silent
+              - --show-error
+              - --get
+              - --data-urlencode
+              - "seconds={{ pprof_seconds }}"
+              - --output
+              - "{{ session_dir }}/cpu.pprof"
+              - "{{ pprof_url }}"
+          async: "{{ (pprof_seconds | int) + 120 }}"
+          poll: 0
+          register: pprof_job
+          changed_when: true
+          when:
+            - inventory_hostname in groups['app']
+            - pprof_url | length > 0
+
+        - name: Tell the operator to start the browser benchmark
+          ansible.builtin.debug:
+            msg: "Profiling is armed. Click the benchmark start button now."
+          when: inventory_hostname == groups['reporter'][0]
+
+        - name: Wait for the browser benchmark and capture its score
+          ansible.builtin.pause:
+            prompt: >-
+              After the browser benchmark finishes, enter the displayed score
+              (or press Enter to leave it unknown)
+          register: browser_benchmark_result
+          when: inventory_hostname == groups['reporter'][0]
+
+        - name: Save benchmark score
+          ansible.builtin.copy:
+            content: >-
+              {{ hostvars[groups['reporter'][0]].browser_benchmark_result.user_input
+                 | default('unknown', true) }}
+            dest: "{{ session_dir }}/score.txt"
+            mode: "0644"
+          when: inventory_hostname == groups['reporter'][0]
+
+        - name: Record measurement stop epoch
+          ansible.builtin.command:
+            argv: [date, +%s]
+          register: measurement_stopped_epoch
+          changed_when: false
+
+        - name: Record human-readable measurement stop time
+          ansible.builtin.command:
+            argv: [date, --iso-8601=seconds]
+          register: measurement_stopped_at
+          changed_when: false
+
+        - name: Wait for CPU profile capture to finish
+          ansible.builtin.async_status:
+            jid: "{{ pprof_job.ansible_job_id }}"
+          register: pprof_result
+          until: pprof_result.finished
+          retries: "{{ (((pprof_seconds | int) + 120) / 5) | round(0, 'ceil') | int }}"
+          delay: 5
+          failed_when: false
+          when:
+            - inventory_hostname in groups['app']
+            - pprof_url | length > 0
+
+      always:
+        - name: Record fallback stop epoch after an interrupted benchmark
+          ansible.builtin.command:
+            argv: [date, +%s]
+          register: fallback_stopped_epoch
+          changed_when: false
+          when: measurement_stopped_epoch is not defined
+
+        - name: Record fallback stop time after an interrupted benchmark
+          ansible.builtin.command:
+            argv: [date, --iso-8601=seconds]
+          register: fallback_stopped_at
+          changed_when: false
+          when: measurement_stopped_at is not defined
+
+        - name: Select effective measurement stop times
+          ansible.builtin.set_fact:
+            effective_stopped_epoch: >-
+              {{ measurement_stopped_epoch.stdout
+                 if measurement_stopped_epoch is defined
+                 else fallback_stopped_epoch.stdout }}
+            effective_stopped_at: >-
+              {{ measurement_stopped_at.stdout
+                 if measurement_stopped_at is defined
+                 else fallback_stopped_at.stdout }}
+
+        - name: Write human-readable measurement stop time
+          ansible.builtin.copy:
+            content: "{{ effective_stopped_at }}\n"
+            dest: "{{ session_dir }}/stopped-at.txt"
+            mode: "0644"
+
+        - name: Copy nginx access logs into the session
+          ansible.builtin.copy:
+            src: "{{ access_log }}"
+            dest: "{{ session_dir }}/access.log"
+            remote_src: true
+            owner: "{{ ansible_user }}"
+            mode: "0644"
+          become: true
+          failed_when: false
+          when:
+            - inventory_hostname in groups['nginx']
+            - access_log_stat.stat.exists | default(false)
+
+        - name: Copy MySQL slow-query logs into the session
+          ansible.builtin.copy:
+            src: "{{ slow_log }}"
+            dest: "{{ session_dir }}/mysql-slow.log"
+            remote_src: true
+            owner: "{{ ansible_user }}"
+            mode: "0644"
+          become: true
+          failed_when: false
+          when:
+            - inventory_hostname in groups['db']
+            - slow_log_stat.stat.exists | default(false)
+
+        - name: Analyze nginx access logs with alp
+          ansible.builtin.command:
+            argv: >-
+              {{ ['alp', access_log_format, '--file', session_dir + '/access.log',
+                  '--sort', 'sum', '--reverse'] + alp_options }}
+          register: alp_result
+          changed_when: false
+          failed_when: false
+          when: inventory_hostname in groups['nginx']
+
+        - name: Save alp report
+          ansible.builtin.copy:
+            content: "{{ alp_result.stdout | default('No access log data collected.', true) }}\n"
+            dest: "{{ session_dir }}/alp.txt"
+            mode: "0644"
+          when: inventory_hostname in groups['nginx']
+
+        - name: Analyze MySQL slow-query logs
+          ansible.builtin.command:
+            argv: >-
+              {{ ['pt-query-digest', '--limit', '20'] + pt_query_digest_options +
+                 [session_dir + '/mysql-slow.log'] }}
+          register: slow_query_result
+          changed_when: false
+          failed_when: false
+          when: inventory_hostname in groups['db']
+
+        - name: Save slow-query report
+          ansible.builtin.copy:
+            content: "{{ slow_query_result.stdout | default('No slow-query data collected.', true) }}\n"
+            dest: "{{ session_dir }}/pt-query-digest.txt"
+            mode: "0644"
+          when: inventory_hostname in groups['db']
+
+        - name: Inspect captured CPU profile
+          ansible.builtin.stat:
+            path: "{{ session_dir }}/cpu.pprof"
+          register: cpu_profile_stat
+          when: inventory_hostname in groups['app']
+
+        - name: Render cumulative CPU profile
+          ansible.builtin.command:
+            argv:
+              - go
+              - tool
+              - pprof
+              - -top
+              - -cum
+              - "{{ session_dir }}/cpu.pprof"
+          register: pprof_top_result
+          changed_when: false
+          failed_when: false
+          when:
+            - inventory_hostname in groups['app']
+            - cpu_profile_stat.stat.exists | default(false)
+            - cpu_profile_stat.stat.size | default(0) > 0
+
+        - name: Save CPU profile report
+          ansible.builtin.copy:
+            content: "{{ pprof_top_result.stdout | default('No CPU profile collected.', true) }}\n"
+            dest: "{{ session_dir }}/pprof.txt"
+            mode: "0644"
+          when: inventory_hostname in groups['app']
+
+        - name: Create netdata artifact directory
+          ansible.builtin.file:
+            path: "{{ session_dir }}/netdata"
+            state: directory
+            mode: "0755"
+          when: netdata_enabled | bool
+
+        - name: Download netdata charts for the measurement window
+          ansible.builtin.command:
+            argv:
+              - curl
+              - --fail
+              - --silent
+              - --show-error
+              - --get
+              - --data-urlencode
+              - "chart={{ item }}"
+              - --data-urlencode
+              - "after={{ benchmark_started_epoch.stdout }}"
+              - --data-urlencode
+              - "before={{ effective_stopped_epoch }}"
+              - --data-urlencode
+              - format=json
+              - --output
+              - "{{ session_dir }}/netdata/{{ item | replace('/', '_') }}.json"
+              - "{{ netdata_url }}/api/v1/data"
+          loop: "{{ netdata_charts }}"
+          changed_when: true
+          failed_when: false
+          when:
+            - netdata_enabled | bool
+            - benchmark_started_epoch.stdout is defined
+
+        - name: Summarize netdata averages and maxima
+          ansible.builtin.shell:
+            cmd: |
+              set -o pipefail
+              : > netdata.txt
+              for chart_file in netdata/*.json; do
+                [ -e "$chart_file" ] || continue
+                printf '[%s]\n' "$(basename "$chart_file" .json)" >> netdata.txt
+                jq -r '
+                  .labels as $labels |
+                  range(1; $labels | length) as $column |
+                  [.data[][$column] | numbers] as $values |
+                  if ($values | length) > 0 then
+                    [$labels[$column], (($values | add) / ($values | length)), ($values | max)] |
+                    @tsv
+                  else empty end
+                ' "$chart_file" |
+                  awk 'BEGIN { print "dimension\taverage\tmax" } { print }' >> netdata.txt
+                printf '\n' >> netdata.txt
+              done
+            chdir: "{{ session_dir }}"
+            executable: /bin/bash
+          changed_when: true
+          failed_when: false
+          when: netdata_enabled | bool
+
+        - name: Remove raw logs after analysis
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - "{{ session_dir }}/access.log"
+            - "{{ session_dir }}/mysql-slow.log"
+
+        - name: Remove raw netdata responses after summarization
+          ansible.builtin.file:
+            path: "{{ session_dir }}/netdata"
+            state: absent
+          when: netdata_enabled | bool

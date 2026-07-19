@@ -1,0 +1,67 @@
+---
+- name: Install ISUCON measurement tools
+  hosts: all
+  become: true
+  vars:
+    alp_version: "1.0.21"
+    alp_arch_map:
+      x86_64: amd64
+      aarch64: arm64
+  tasks:
+    - name: Create the managed user's SSH directory
+      ansible.builtin.file:
+        path: "/home/{{ ansible_user }}/.ssh"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0700"
+      when: (team_ssh_public_keys | default([])) | length > 0
+
+    - name: Authorize team SSH public keys
+      ansible.builtin.lineinfile:
+        path: "/home/{{ ansible_user }}/.ssh/authorized_keys"
+        line: "{{ item }}"
+        regexp: "^{{ item | regex_escape }}$"
+        create: true
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0600"
+      loop: "{{ team_ssh_public_keys | default([]) }}"
+
+    - name: Install system packages
+      ansible.builtin.apt:
+        name:
+          - curl
+          - default-mysql-client
+          - golang-go
+          - jq
+          - netdata
+          - percona-toolkit
+        state: present
+        update_cache: true
+
+    - name: Check supported alp architecture
+      ansible.builtin.assert:
+        that: ansible_architecture in alp_arch_map
+        fail_msg: "Unsupported alp architecture: {{ ansible_architecture }}"
+
+    - name: Download and install alp
+      ansible.builtin.unarchive:
+        src: "https://github.com/tkuchiki/alp/releases/download/v{{ alp_version }}/alp_linux_{{ alp_arch_map[ansible_architecture] }}.tar.gz"
+        dest: /usr/local/bin
+        remote_src: true
+        mode: "0755"
+
+    - name: Keep netdata running during the tuning session
+      ansible.builtin.systemd:
+        name: "{{ netdata_service }}"
+        state: started
+        enabled: true
+
+    - name: Keep MySQL slow-query logging enabled during the tuning session
+      ansible.builtin.command:
+        argv:
+          - "{{ mysql_admin_command }}"
+          - "--execute=SET GLOBAL long_query_time={{ mysql_slow_query_time }}; SET GLOBAL slow_query_log='ON';"
+      changed_when: true
+      when: inventory_hostname in groups['db']

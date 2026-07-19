@@ -1,0 +1,39 @@
+# ISUCON benchmark report
+
+- Session: `{{ session_id }}`
+- Reporter: `{{ groups['reporter'][0] }}`
+- Git revision: `{{ lookup('ansible.builtin.file', local_session_dir + '/' + groups['reporter'][0] + '/git-revision.txt', errors='ignore') | default('unknown', true) }}`
+- Score: `{{ lookup('ansible.builtin.file', local_session_dir + '/' + groups['reporter'][0] + '/score.txt', errors='ignore') | default('unknown', true) }}`
+
+{% for host in groups['nginx'] %}
+## alp: {{ host }}
+
+```text
+{{ lookup('ansible.builtin.file', local_session_dir + '/' + host + '/alp.txt', errors='ignore') | default('No alp report collected.', true) }}
+```
+
+{% endfor %}
+{% for host in groups['db'] %}
+## pt-query-digest: {{ host }}
+
+```text
+{{ lookup('ansible.builtin.file', local_session_dir + '/' + host + '/pt-query-digest.txt', errors='ignore') | default('No slow-query report collected.', true) }}
+```
+
+{% endfor %}
+{% for host in groups['app'] %}
+## pprof CPU: {{ host }}
+
+```text
+{{ lookup('ansible.builtin.file', local_session_dir + '/' + host + '/pprof.txt', errors='ignore') | default('No CPU profile collected.', true) }}
+```
+
+{% endfor %}
+{% for host in groups['all'] %}
+## netdata: {{ host }}
+
+```text
+{{ lookup('ansible.builtin.file', local_session_dir + '/' + host + '/netdata.txt', errors='ignore') | default('No netdata summary collected.', true) }}
+```
+
+{% endfor %}

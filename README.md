@@ -1,0 +1,211 @@
+# pisucon-2026
+
+ISUCONサーバーの再構築、ベンチ前後の計測、結果回収をAnsibleで自動化します。
+利用方法と運用コマンドはこのREADMEに集約しています。
+
+## クイックスタート
+
+手元PCで実行します。
+
+```bash
+make setup
+
+$EDITOR tools/isucon-bench/ansible/inventory.yml
+$EDITOR tools/isucon-bench/ansible/group_vars/all.yml
+
+make bootstrap
+make instrument-on
+make bench
+```
+
+`make setup` はAnsible、jq、git、ghを手元PCへ導入します。`inventory.yml` と
+`group_vars/all.yml` はどちらも最初からGit管理されています。
+
+### 設定ファイル
+
+| ファイル | 内容 | Git管理 |
+| --- | --- | --- |
+| `tools/isucon-bench/ansible/inventory.yml` | 接続先IP、SSHユーザー、サーバーの役割 | する |
+| `tools/isucon-bench/ansible/group_vars/all.yml` | ビルド、ログ、pprof、Git、ローカル出力など全共有設定 | する |
+
+接続先とホストの役割は `inventory.yml`、それ以外の設定は `group_vars/all.yml` に集約します。
+CLIとAnsibleは同じファイルを読むため、Shell用の設定ファイルはありません。
+
+inventoryでは各ホストを `app`、`db`、`nginx` に割り当てます。`reporter` はGit revisionと
+スコアの基準にするホストをちょうど1台指定します。同じホストを複数グループへ所属させられます。
+1台構成では1ホストをすべてのグループへ、3台構成では役割ごとに別ホストを指定します。
+
+### チームメンバーのSSH公開鍵
+
+`group_vars/all.yml` の `team_ssh_public_keys` に、各メンバーの公開鍵を1行ずつ追加してから
+`make fleet-setup` または `make bootstrap` を実行します。公開鍵はGit管理して構いません。秘密鍵は
+絶対にここへ書かず、各メンバーの手元で管理します。既存の `authorized_keys` は削除しないため、
+Ansible実行でログイン用の既存鍵を誤って失うことはありません。
+
+```yaml
+team_ssh_public_keys:
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... alice@laptop"
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... bob@laptop"
+```
+
+## 普段のベンチ運用
+
+```bash
+make bench               # 計測、解析、手元PCへの回収
+make bench PUBLISH=true  # 上記に加えてGitHub Issueを作成
+make collect             # 最新結果の回収だけをやり直す
+make collect SESSION=20260719-123000
+make publish DIR=20260719-123000
+```
+
+`make bench` は次の順に処理します。
+
+1. appホストでビルド・再起動
+2. nginxとMySQLの対象ログを初期化
+3. pprof取得を開始
+4. ターミナルで待機
+5. ユーザーがブラウザから公式ベンチを開始
+6. 終了後、ユーザーが表示スコアを入力（省略可能）
+7. alp、pt-query-digest、pprof、netdataを解析
+8. `collect.yml` で手元PCへ回収し、`REPORT.md` を生成
+
+最初の案内ではブラウザの開始画面を準備してEnterを押します。`Profiling is armed` が
+表示されたら開始ボタンを押してください。既定では約1分のベンチを覆うためpprofを75秒取得します。
+
+解析結果は `local_log_root/<SESSION>/<HOST>/`、統合レポートは
+`local_log_root/<SESSION>/REPORT.md` に保存されます。保持するのは次の解析結果だけです。
+
+- `alp.txt`
+- `pt-query-digest.txt`
+- `pprof.txt` と再解析用の `cpu.pprof`
+- `netdata.txt`
+- スコア、Git revision、開始・終了時刻
+
+nginx access log、MySQL slow log、netdataの生JSONは解析後に削除します。
+GitHub Issueは手元PCの `gh` から作成するため、競技サーバーにGitHubトークンは置きません。
+初回だけ手元PCで `gh auth login` を実行してください。
+
+## 計測機能のON/OFF
+
+netdataとslow query logは `make bootstrap` 後から常時有効です。pprofも一度
+`make instrument-on` するとlocalhostのHTTPエンドポイントが常設されますが、
+CPU計測負荷が発生するのは取得中だけです。
+
+```bash
+make instrument-on   # Goアプリへpprofを追加して再ビルド・再起動
+make instrument-off  # pprofを削除して再ビルド・再起動
+make fleet-enable    # netdataとslow query logを手動でON
+make fleet-disable   # netdataとslow query logを手動でOFF
+```
+
+netdataにも多少の負荷があるため、競技終了前または最終スコア計測前はすべて外します。
+
+```bash
+make finish
+```
+
+`make finish` はnetdataとslow query logを停止し、pprofの生成コードを削除してアプリを
+再ビルド・再起動します。
+
+## サーバー再作成
+
+GitHub上のremote repositoryを先に作成し、`group_vars/all.yml` の
+`git_repository` と `remote_project_root` を設定します。その後、手元PCのssh-agentへ
+GitHubに接続できる鍵を登録します。
+
+```bash
+ssh-add "$HOME/.ssh/pisucon-2026"
+ssh -T git@github.com
+make bootstrap
+```
+
+`make bootstrap` は全ホストへalp、netdata、pt-query-digestなどを導入し、repositoryを
+cloneまたは指定branchへ更新します。private repositoryにはssh-agent forwardingで接続し、
+秘密鍵ファイル自体はサーバーへコピーしません。未commitの変更は上書きしません。
+
+## よく使うコマンド
+
+### Make
+
+```bash
+make help
+make setup          # 手元PCの初回準備
+make bootstrap      # サーバー再作成後の復元
+make fleet-setup    # Git操作なしで計測ツールだけ導入
+make bench
+make collect
+make finish
+```
+
+### SSH鍵の作成と接続
+
+```bash
+install -d -m 0700 "$HOME/.ssh"
+ssh-keygen -t ed25519 -f "$HOME/.ssh/pisucon-2026" -C "pisucon-2026"
+ssh-add "$HOME/.ssh/pisucon-2026"
+ssh-copy-id -i "$HOME/.ssh/pisucon-2026.pub" isucon@192.0.2.11
+ssh -i "$HOME/.ssh/pisucon-2026" isucon@192.0.2.11
+```
+
+秘密鍵は手元PCだけに置き、サーバーやGit repositoryへ保存しません。inventoryへ指定する
+場合も鍵の内容ではなく、手元PC上のパスを書きます。
+
+```yaml
+all:
+  vars:
+    ansible_user: isucon
+    ansible_ssh_private_key_file: ~/.ssh/pisucon-2026
+```
+
+### Ansibleの確認
+
+```bash
+ANSIBLE_INVENTORY=tools/isucon-bench/ansible/inventory.yml
+
+ansible-inventory -i "$ANSIBLE_INVENTORY" --graph
+ansible all -i "$ANSIBLE_INVENTORY" -m ansible.builtin.ping
+ansible all -i "$ANSIBLE_INVENTORY" -a 'hostname'
+ansible-playbook -vv -i "$ANSIBLE_INVENTORY" tools/isucon-bench/ansible/setup.yml
+ansible-lint tools/isucon-bench/ansible
+```
+
+`bench.yml` はCLIがセッションIDなどを渡すため、直接実行せず `make bench` を使います。
+
+### Ansible Vault
+
+Git管理が必要な秘密情報だけをVaultで暗号化します。SSH秘密鍵はVaultへ入れず、
+手元PCの `~/.ssh` で管理するのが基本です。
+
+```bash
+mkdir -p tools/isucon-bench/ansible/group_vars/all
+ansible-vault create tools/isucon-bench/ansible/group_vars/all/vault.yml
+ansible-vault edit tools/isucon-bench/ansible/group_vars/all/vault.yml
+```
+
+## トラブル時
+
+ベンチや回収に失敗した場合も、サーバー上のセッション成果物は残ります。
+
+```bash
+make finish
+make collect SESSION=<セッションID>
+```
+
+ホスト自体が到達不能な場合、そのホストの後始末や回収はできません。復旧後に
+`make finish` と `make collect` を再実行してください。
+
+## 構成
+
+```text
+Makefile
+└── tools/isucon-bench/bin/isucon-bench
+    ├── ansible/setup.yml       サーバーへ計測ツールを導入
+    ├── ansible/git.yml         repositoryをclone・更新
+    ├── ansible/instrument.yml  pprofを追加・削除
+    ├── ansible/bench.yml       ベンチ前処理・計測・解析
+    ├── ansible/collect.yml     成果物の回収・レポート統合
+    └── ansible/disable.yml     計測負荷を停止
+```
+
+pprofは設定の検証によりlocalhostだけで待ち受けます。netdata側もlocalhost bindに設定し、
+競技ネットワークへ `19999/tcp` を公開しないでください。

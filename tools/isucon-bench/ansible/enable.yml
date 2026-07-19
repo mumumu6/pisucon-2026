@@ -1,0 +1,21 @@
+---
+- name: Enable host monitoring
+  hosts: all
+  become: true
+  tasks:
+    - name: Start and enable netdata
+      ansible.builtin.systemd:
+        name: "{{ netdata_service }}"
+        state: started
+        enabled: true
+
+- name: Enable MySQL slow-query logging
+  hosts: db
+  become: true
+  tasks:
+    - name: Set slow-query variables
+      ansible.builtin.command:
+        argv:
+          - "{{ mysql_admin_command }}"
+          - "--execute=SET GLOBAL long_query_time={{ mysql_slow_query_time }}; SET GLOBAL slow_query_log='ON';"
+      changed_when: true

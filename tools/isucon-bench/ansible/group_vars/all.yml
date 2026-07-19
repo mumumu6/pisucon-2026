@@ -1,0 +1,49 @@
+---
+# 全管理対象ホストで共有する非秘密設定。制御用リポジトリを新規cloneした場合も同じ構成を再現できるよう、Git管理します。
+
+remote_project_root: /home/isucon/pisucon-2026
+remote_log_root: /home/isucon/log
+
+git_repository: git@github.com:mumumu6/pisucon-2026.git
+git_version: main
+git_user_name: mumumu6
+git_user_email: takumu.sato@gmail.com
+
+# アプリ固有の操作。
+build_command: make build-app
+restart_command: sudo systemctl restart your-app.service
+
+# ログと解析ツール。
+access_log: /var/log/nginx/access.log
+access_log_format: ltsv
+alp_options: []
+mysql_admin_command: mysql
+mysql_slow_query_time: 0
+slow_log: /var/log/mysql/mysql-slow.log
+pt_query_digest_options: []
+
+# Goプロファイリング。待受先はlocalhostに限定します。
+pprof_go_dir: path/to/go/main/package
+pprof_listen_addr: 127.0.0.1:6060
+pprof_url: http://127.0.0.1:6060/debug/pprof/profile
+pprof_seconds: 75
+
+# ホストメトリクス。
+netdata_enabled: true
+netdata_service: netdata
+netdata_url: http://127.0.0.1:19999
+netdata_charts:
+  - system.cpu
+  - system.ram
+  - system.load
+  - system.io
+
+# Ansibleを実行する手元PC側の設定。
+local_log_root: ~/log
+github_repository: mumumu6/pisucon-2026
+create_github_issue: true
+fleet_auto_publish: false
+
+# 公開鍵はコミットして構いません。秘密鍵はここへ書きません。
+# setup.yml は既存の authorized_keys を削除せず、ここに指定した鍵を追加します。
+team_ssh_public_keys: []

@@ -1,0 +1,100 @@
+---
+- name: Select a benchmark session on the reporter
+  hosts: reporter
+  gather_facts: false
+  vars:
+    requested_session: ""
+  tasks:
+    - name: Find benchmark sessions
+      ansible.builtin.find:
+        paths: "{{ remote_log_root }}"
+        file_type: directory
+        recurse: false
+      register: benchmark_sessions
+
+    - name: Require at least one benchmark session
+      ansible.builtin.assert:
+        that: benchmark_sessions.files | length > 0
+        fail_msg: "No benchmark sessions exist below {{ remote_log_root }}"
+
+    - name: Select requested or latest session
+      ansible.builtin.set_fact:
+        selected_session: >-
+          {{ requested_session if requested_session | length > 0 else
+             (benchmark_sessions.files | sort(attribute='mtime', reverse=true) | first).path | basename }}
+
+    - name: Validate session identifier
+      ansible.builtin.assert:
+        that: selected_session is match('^[0-9]{8}-[0-9]{6}$')
+        fail_msg: "Invalid benchmark session: {{ selected_session }}"
+
+- name: Fetch benchmark artifacts from every fleet host
+  hosts: all
+  gather_facts: false
+  vars:
+    selected_session: "{{ hostvars[groups['reporter'][0]].selected_session }}"
+    session_id: "{{ selected_session }}"
+    local_session_dir: "{{ local_log_root }}/{{ selected_session }}"
+    per_host_session_dir: "{{ remote_log_root }}/{{ selected_session }}/{{ inventory_hostname }}"
+    collected_artifact_names:
+      - alp.txt
+      - cpu.pprof
+      - git-revision.txt
+      - netdata.txt
+      - pprof.txt
+      - pt-query-digest.txt
+      - score.txt
+      - started-at.txt
+      - stopped-at.txt
+  tasks:
+    - name: Create the local session directory
+      ansible.builtin.file:
+        path: "{{ local_session_dir }}"
+        state: directory
+        mode: "0755"
+      delegate_to: localhost
+      when: inventory_hostname == groups['reporter'][0]
+
+    - name: Check for per-host artifact layout
+      ansible.builtin.stat:
+        path: "{{ per_host_session_dir }}"
+      register: per_host_session_stat
+
+    - name: Select new or legacy artifact path
+      ansible.builtin.set_fact:
+        selected_remote_dir: >-
+          {{ per_host_session_dir if per_host_session_stat.stat.isdir | default(false)
+             else remote_log_root + '/' + selected_session }}
+
+    - name: Find files in the selected session
+      ansible.builtin.find:
+        paths: "{{ selected_remote_dir }}"
+        file_type: file
+        recurse: true
+      register: session_files
+      when:
+        - per_host_session_stat.stat.isdir | default(false) or
+          inventory_hostname in groups['reporter']
+
+    - name: Fetch session files while preserving host and relative paths
+      ansible.builtin.fetch:
+        src: "{{ item.path }}"
+        dest: "{{ local_session_dir }}/{{ inventory_hostname }}/{{ item.path | regex_replace('^' + selected_remote_dir + '/', '') }}"
+        flat: true
+      loop: "{{ session_files.files | default([]) }}"
+      loop_control:
+        label: "{{ inventory_hostname }}/{{ item.path | basename }}"
+      when: item.path | basename in collected_artifact_names
+
+    - name: Render the merged benchmark report locally
+      ansible.builtin.template:
+        src: templates/fleet-report.md.j2
+        dest: "{{ local_session_dir }}/REPORT.md"
+        mode: "0644"
+      delegate_to: localhost
+      when: inventory_hostname == groups['reporter'][0]
+
+    - name: Show local report path
+      ansible.builtin.debug:
+        msg: "Collected {{ selected_session }} into {{ local_session_dir }}"
+      when: inventory_hostname == groups['reporter'][0]
