@@ -12,9 +12,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
@@ -40,6 +40,8 @@ const (
 	scoreConditionLevelInfo     = 3
 	scoreConditionLevelWarning  = 2
 	scoreConditionLevelCritical = 1
+	trendCacheTTL               = 500 * time.Millisecond
+	trendCacheMaxAge            = 800 * time.Millisecond
 )
 
 var (
@@ -50,6 +52,21 @@ var (
 	jiaJWTSigningKey *ecdsa.PublicKey
 
 	postIsuConditionTargetBaseURL string // JIAへのactivate時に登録する，ISUがconditionを送る先のURL
+
+	trendCache = struct {
+		sync.RWMutex
+		body       []byte
+		expiresAt  time.Time
+		staleUntil time.Time
+		refreshing bool
+		done       chan struct{}
+		err        error
+	}{}
+
+	isuExistenceCache = struct {
+		sync.RWMutex
+		values map[string]bool
+	}{values: make(map[string]bool)}
 )
 
 type Isu struct {
@@ -301,6 +318,25 @@ func getJIAServiceURL(tx *sqlx.Tx) string {
 	return url
 }
 
+func clearIsuExistenceCache() {
+	isuExistenceCache.Lock()
+	defer isuExistenceCache.Unlock()
+	isuExistenceCache.values = make(map[string]bool)
+}
+
+func getCachedIsuExistence(jiaIsuUUID string) (bool, bool) {
+	isuExistenceCache.RLock()
+	exists, cached := isuExistenceCache.values[jiaIsuUUID]
+	isuExistenceCache.RUnlock()
+	return exists, cached
+}
+
+func setCachedIsuExistence(jiaIsuUUID string, exists bool) {
+	isuExistenceCache.Lock()
+	isuExistenceCache.values[jiaIsuUUID] = exists
+	isuExistenceCache.Unlock()
+}
+
 // POST /initialize
 // サービスを初期化
 func postInitialize(c echo.Context) error {
@@ -318,6 +354,7 @@ func postInitialize(c echo.Context) error {
 		c.Logger().Errorf("exec init.sh error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	clearIsuExistenceCache()
 
 	_, err = db.Exec(
 		"INSERT INTO `isu_association_config` (`name`, `url`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `url` = VALUES(`url`)",
@@ -625,6 +662,7 @@ func postIsu(c echo.Context) error {
 		c.Logger().Errorf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	setCachedIsuExistence(jiaIsuUUID, true)
 
 	return c.JSON(http.StatusCreated, isu)
 }
@@ -1058,6 +1096,94 @@ func calculateConditionLevel(condition string) (string, error) {
 // GET /api/trend
 // ISUの性格毎の最新のコンディション情報
 func getTrend(c echo.Context) error {
+	body, err := getTrendJSON()
+	if err != nil {
+		c.Logger().Errorf("failed to build trend response: %v", err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	return c.JSONBlob(http.StatusOK, body)
+}
+
+func getTrendJSON() ([]byte, error) {
+	now := time.Now()
+	trendCache.RLock()
+	body := trendCache.body
+	fresh := len(body) > 0 && now.Before(trendCache.expiresAt)
+	stale := len(body) > 0 && now.Before(trendCache.staleUntil)
+	trendCache.RUnlock()
+
+	if fresh {
+		return body, nil
+	}
+
+	// fresh期限後から生成後800msまではstaleを即返し、裏で更新する。
+	// それより古い値は返さない。
+	if stale {
+		if done, started := startTrendCacheRefresh(); started {
+			go refreshTrendCache(done)
+		}
+		return body, nil
+	}
+
+	// stale許容期限を超えたら、このリクエストが同期で再生成する。すでに
+	// バックグラウンド更新中なら、その完了を待つ。
+	done, started := startTrendCacheRefresh()
+	if started {
+		return refreshTrendCache(done)
+	}
+	if done != nil {
+		<-done
+	}
+
+	trendCache.RLock()
+	body, err := trendCache.body, trendCache.err
+	valid := len(body) > 0 && time.Now().Before(trendCache.staleUntil)
+	trendCache.RUnlock()
+	if valid {
+		return body, nil
+	}
+	return nil, err
+}
+
+// startTrendCacheRefreshは同時に1本だけキャッシュ更新を開始する。
+// 呼び出し元の判定中にキャッシュが更新済みならnil, falseを返す。
+func startTrendCacheRefresh() (chan struct{}, bool) {
+	trendCache.Lock()
+	defer trendCache.Unlock()
+
+	if len(trendCache.body) > 0 && time.Now().Before(trendCache.expiresAt) {
+		return nil, false
+	}
+	if trendCache.refreshing {
+		return trendCache.done, false
+	}
+
+	trendCache.refreshing = true
+	trendCache.done = make(chan struct{})
+	return trendCache.done, true
+}
+
+func refreshTrendCache(done chan struct{}) ([]byte, error) {
+	body, err := buildTrendJSON()
+
+	trendCache.Lock()
+	if err == nil {
+		updatedAt := time.Now()
+		trendCache.body = body
+		trendCache.expiresAt = updatedAt.Add(trendCacheTTL)
+		trendCache.staleUntil = updatedAt.Add(trendCacheMaxAge)
+	} else {
+		log.Errorf("failed to refresh trend cache: %v", err)
+	}
+	trendCache.err = err
+	trendCache.refreshing = false
+	close(done)
+	trendCache.Unlock()
+
+	return body, err
+}
+
+func buildTrendJSON() ([]byte, error) {
 	type trendRow struct {
 		IsuID           int       `db:"isu_id"`
 		Character       string    `db:"character"`
@@ -1069,26 +1195,25 @@ func getTrend(c echo.Context) error {
 	err := db.Select(&rows, `
 		SELECT isu.id AS isu_id, isu.character, isu.latest_timestamp, isu.latest_condition
 		FROM isu
-		WHERE isu.latest_timestamp IS NOT NULL`)
+		WHERE isu.latest_timestamp IS NOT NULL
+		ORDER BY isu.character DESC, isu.latest_timestamp DESC`)
 	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
+		return nil, fmt.Errorf("select trend rows: %w", err)
 	}
 
-	res := []TrendResponse{}
+	res := []*TrendResponse{}
 	trendByCharacter := map[string]*TrendResponse{}
 	for _, row := range rows {
 		trend, ok := trendByCharacter[row.Character]
 		if !ok {
 			trend = &TrendResponse{Character: row.Character}
 			trendByCharacter[row.Character] = trend
-			res = append(res, *trend)
+			res = append(res, trend)
 		}
 
 		conditionLevel, err := calculateConditionLevel(row.LatestCondition)
 		if err != nil {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
+			return nil, err
 		}
 		trendCondition := &TrendCondition{ID: row.IsuID, Timestamp: row.LatestTimestamp.Unix()}
 		switch conditionLevel {
@@ -1101,16 +1226,21 @@ func getTrend(c echo.Context) error {
 		}
 	}
 
-	// mapに保持しているレスポンスを、返却用のスライスへ反映する。
-	for i := range res {
-		trend := trendByCharacter[res[i].Character]
-		sort.Slice(trend.Info, func(i, j int) bool { return trend.Info[i].Timestamp > trend.Info[j].Timestamp })
-		sort.Slice(trend.Warning, func(i, j int) bool { return trend.Warning[i].Timestamp > trend.Warning[j].Timestamp })
-		sort.Slice(trend.Critical, func(i, j int) bool { return trend.Critical[i].Timestamp > trend.Critical[j].Timestamp })
-		res[i] = *trend
+	// 複合indexを逆順走査することで各condition配列はtimestamp DESC順になる。
+	// characterの並びだけ元のASC順へ戻す。
+	reverseTrendResponses(res)
+	body, err := json.Marshal(res)
+	if err != nil {
+		return nil, fmt.Errorf("marshal trend response: %w", err)
 	}
 
-	return c.JSON(http.StatusOK, res)
+	return body, nil
+}
+
+func reverseTrendResponses(trends []*TrendResponse) {
+	for left, right := 0, len(trends)-1; left < right; left, right = left+1, right-1 {
+		trends[left], trends[right] = trends[right], trends[left]
+	}
 }
 
 // POST /api/condition/:jia_isu_uuid
@@ -1135,22 +1265,27 @@ func postIsuCondition(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "bad request body")
 	}
 
+	isuExists, cached := getCachedIsuExistence(jiaIsuUUID)
+	if !cached {
+		var exists int
+		err = db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM `isu` WHERE `jia_isu_uuid` = ?)", jiaIsuUUID)
+		if err != nil {
+			c.Logger().Errorf("db error: %v", err)
+			return c.NoContent(http.StatusInternalServerError)
+		}
+		isuExists = exists == 1
+		setCachedIsuExistence(jiaIsuUUID, isuExists)
+	}
+	if !isuExists {
+		return c.String(http.StatusNotFound, "not found: isu")
+	}
+
 	tx, err := db.Beginx()
 	if err != nil {
 		c.Logger().Errorf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
-
-	var count int
-	err = tx.Get(&count, "SELECT COUNT(*) FROM `isu` WHERE `jia_isu_uuid` = ?", jiaIsuUUID)
-	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	if count == 0 {
-		return c.String(http.StatusNotFound, "not found: isu")
-	}
 
 	placeholders := make([]string, len(req))
 	args := make([]interface{}, 0, len(req)*5)
