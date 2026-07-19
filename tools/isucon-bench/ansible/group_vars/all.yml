@@ -1,7 +1,7 @@
 ---
 # 全管理対象ホストで共有する非秘密設定。制御用リポジトリを新規cloneした場合も同じ構成を再現できるよう、Git管理します。
 
-remote_project_root: /home/
+remote_project_root: /home/isucon
 remote_log_root: /home/isucon/log
 
 git_repository: git@github.com:mumumu6/pisucon-2026.git

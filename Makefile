@@ -5,13 +5,16 @@ PLAYBOOK := ansible-playbook --inventory $(INVENTORY)
 PUBLISH_SCRIPT := tools/isucon-bench/scripts/publish
 BENCH_SESSION ?= $(shell date +%Y%m%d-%H%M%S)
 
-.PHONY: bootstrap fleet-setup fleet-enable fleet-disable collect instrument-on instrument-off finish publish bench help
+.PHONY: bootstrap pull fleet-setup fleet-enable fleet-disable collect instrument-on instrument-off finish publish bench help
 
 help: ## Makeターゲットと用途を表示する
 	@awk 'BEGIN { FS = ":.*## "; printf "Usage: make <target> [OPTION=value]\n\n" } /^[a-zA-Z0-9_-]+:.*## / { printf "  %-18s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
 bootstrap: ## 全サーバーへ計測ツールを導入し、Git repositoryを復元する
 	@$(PLAYBOOK) tools/isucon-bench/ansible/setup.yml
+	@$(PLAYBOOK) tools/isucon-bench/ansible/git.yml
+
+pull: ## GitHubの指定ブランチを全サーバーへ取得する（ローカルのpushは別途行う）
 	@$(PLAYBOOK) tools/isucon-bench/ansible/git.yml
 
 fleet-setup: ## 全サーバーへalp・netdata等の計測ツールを導入する

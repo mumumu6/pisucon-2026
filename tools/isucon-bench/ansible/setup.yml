@@ -1,5 +1,5 @@
 ---
-- name: Install ISUCON measurement tools
+- name: ISUCON用の計測ツールを導入する
   hosts: all
   become: true
   vars:
@@ -8,15 +8,13 @@
       x86_64: amd64
       aarch64: arm64
   tasks:
-    - name: Install system packages
+    - name: 共通パッケージを導入する
       ansible.builtin.apt:
         name:
           - curl
-          - default-mysql-client
-          - golang-go
+          - git
           - jq
           - netdata
-          - percona-toolkit
         state: present
         update_cache: true
         update_cache_retries: 5
@@ -24,26 +22,62 @@
         # Freshly created ISUCON instances may still run cloud-init's apt job.
         # Wait for its dpkg lock instead of failing the bootstrap.
         lock_timeout: 600
+      register: common_packages
+      retries: 40
+      delay: 15
+      until: common_packages is succeeded
 
-    - name: Check supported alp architecture
+    - name: アプリホストへGoを導入する
+      ansible.builtin.apt:
+        name: golang-go
+        state: present
+        lock_timeout: 600
+      register: go_packages
+      retries: 40
+      delay: 15
+      until: go_packages is succeeded
+      when: inventory_hostname in groups['app']
+
+    - name: DBホストへMariaDBとpt-query-digestを導入する
+      ansible.builtin.apt:
+        name:
+          - mariadb-server
+          - percona-toolkit
+        state: present
+        lock_timeout: 600
+      register: database_packages
+      retries: 40
+      delay: 15
+      until: database_packages is succeeded
+      when: inventory_hostname in groups['db']
+
+    - name: DBホストのMariaDBを起動・自動起動にする
+      ansible.builtin.systemd:
+        name: mariadb
+        state: started
+        enabled: true
+      when: inventory_hostname in groups['db']
+
+    - name: Alp対応アーキテクチャを確認する
       ansible.builtin.assert:
         that: ansible_architecture in alp_arch_map
         fail_msg: "Unsupported alp architecture: {{ ansible_architecture }}"
 
-    - name: Download and install alp
+    - name: NginxホストへAlpを導入する
       ansible.builtin.unarchive:
         src: "https://github.com/tkuchiki/alp/releases/download/v{{ alp_version }}/alp_linux_{{ alp_arch_map[ansible_architecture] }}.tar.gz"
         dest: /usr/local/bin
         remote_src: true
         mode: "0755"
+      when: inventory_hostname in groups['nginx']
 
-    - name: Keep netdata running during the tuning session
+    - name: Netdataを起動・自動起動にする
       ansible.builtin.systemd:
         name: "{{ netdata_service }}"
         state: started
         enabled: true
 
-    - name: Keep MySQL slow-query logging enabled during the tuning session
+    - name: DBホストのスロークエリログを有効にする
       ansible.builtin.command:
         argv:
           - "{{ mysql_admin_command }}"

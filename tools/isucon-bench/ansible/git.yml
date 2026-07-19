@@ -1,10 +1,10 @@
 ---
-- name: Restore the application Git repository
+- name: アプリケーションのGitリポジトリを同期する
   hosts: all
   gather_facts: false
 
   pre_tasks:
-    - name: Validate Git bootstrap settings
+    - name: Git同期設定を検証する
       ansible.builtin.assert:
         that:
           - remote_project_root is defined
@@ -22,14 +22,7 @@
           values in group_vars/all.yml.
 
   tasks:
-    - name: Install Git
-      ansible.builtin.apt:
-        name: git
-        state: present
-        update_cache: true
-      become: true
-
-    - name: Clone or update the configured repository
+    - name: リポジトリを初回cloneまたは最新化する
       ansible.builtin.git:
         repo: "{{ git_repository }}"
         dest: "{{ remote_project_root }}"
@@ -38,7 +31,7 @@
         force: false
         accept_newhostkey: true
 
-    - name: Read repository-local Git user name
+    - name: リポジトリのGitユーザー名を確認する
       ansible.builtin.command:
         argv: [git, config, --local, --get, user.name]
         chdir: "{{ remote_project_root }}"
@@ -46,14 +39,14 @@
       changed_when: false
       failed_when: existing_git_user_name.rc not in [0, 1]
 
-    - name: Configure repository-local Git user name
+    - name: リポジトリのGitユーザー名を設定する
       ansible.builtin.command:
         argv: [git, config, --local, user.name, "{{ git_user_name }}"]
         chdir: "{{ remote_project_root }}"
       changed_when: true
       when: existing_git_user_name.stdout != git_user_name
 
-    - name: Read repository-local Git email
+    - name: リポジトリのGitメールアドレスを確認する
       ansible.builtin.command:
         argv: [git, config, --local, --get, user.email]
         chdir: "{{ remote_project_root }}"
@@ -61,7 +54,7 @@
       changed_when: false
       failed_when: existing_git_user_email.rc not in [0, 1]
 
-    - name: Configure repository-local Git email
+    - name: リポジトリのGitメールアドレスを設定する
       ansible.builtin.command:
         argv: [git, config, --local, user.email, "{{ git_user_email }}"]
         chdir: "{{ remote_project_root }}"

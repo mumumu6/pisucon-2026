@@ -1,19 +1,19 @@
 ---
-- name: Enable host monitoring
+- name: ホスト監視を有効にする
   hosts: all
   become: true
   tasks:
-    - name: Start and enable netdata
+    - name: Netdataを起動・自動起動にする
       ansible.builtin.systemd:
         name: "{{ netdata_service }}"
         state: started
         enabled: true
 
-- name: Enable MySQL slow-query logging
+- name: MySQLのslow query logを有効にする
   hosts: db
   become: true
   tasks:
-    - name: Set slow-query variables
+    - name: スロークエリログの設定を反映する
       ansible.builtin.command:
         argv:
           - "{{ mysql_admin_command }}"

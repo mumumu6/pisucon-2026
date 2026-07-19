@@ -115,18 +115,15 @@ make finish
 ## サーバー再作成
 
 GitHub上のremote repositoryを先に作成し、`group_vars/all.yml` の
-`git_repository` と `remote_project_root` を設定します。private repositoryをcloneする場合は、
-手元PCのssh-agentへGitHubに接続できる鍵を登録します。
+`git_repository` と `remote_project_root` を設定します。SSH URLを使う場合は、GitHubに
+登録済みの鍵がサーバーの `isucon` ユーザーで利用できる必要があります。
 
 ```bash
-ssh-add <GitHubに登録済みの秘密鍵>
-ssh -T git@github.com
 make bootstrap
 ```
 
 `make bootstrap` は全ホストへalp、netdata、pt-query-digestなどを導入し、repositoryを
-cloneまたは指定branchへ更新します。private repositoryにはssh-agent forwardingで接続し、
-秘密鍵ファイル自体はサーバーへコピーしません。未commitの変更は上書きしません。
+cloneまたは指定branchへ更新します。未commitの変更は上書きしません。
 
 ## よく使うコマンド
 
@@ -135,6 +132,7 @@ cloneまたは指定branchへ更新します。private repositoryにはssh-agent
 ```bash
 make help
 make bootstrap      # サーバー再作成後の復元
+make pull           # GitHubの変更を全サーバーへ反映
 make fleet-setup    # Git操作なしで計測ツールだけ導入
 make bench
 make collect

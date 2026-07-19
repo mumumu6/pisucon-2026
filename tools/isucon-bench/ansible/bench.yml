@@ -1,5 +1,5 @@
 ---
-- name: Orchestrate an ISUCON benchmark across the fleet
+- name: 全ホストでISUCONベンチ計測を実行する
   hosts: all
   gather_facts: false
   any_errors_fatal: true
@@ -9,7 +9,7 @@
     session_dir: "{{ remote_log_root }}/{{ session_id }}/{{ inventory_hostname }}"
 
   pre_tasks:
-    - name: Validate benchmark inputs and inventory
+    - name: ベンチ計測の設定とinventoryを検証する
       ansible.builtin.assert:
         that:
           - session_id is match('^[0-9]{8}-[0-9]{6}$')
@@ -24,16 +24,16 @@
           nginx groups together with remote_project_root and remote_log_root
       when: inventory_hostname == ansible_play_hosts_all[0]
 
-    - name: Create the remote per-host session directory
+    - name: ホストごとの計測結果ディレクトリを作る
       ansible.builtin.file:
         path: "{{ session_dir }}"
         state: directory
         mode: "0755"
 
   tasks:
-    - name: Run benchmark with guaranteed cleanup and analysis
+    - name: ベンチ計測と終了後の解析を実行する
       block:
-        - name: Read the deployed Git revision
+        - name: デプロイ済みのGitリビジョンを取得する
           ansible.builtin.command:
             argv: [git, rev-parse, HEAD]
             chdir: "{{ remote_project_root }}"
@@ -42,14 +42,14 @@
           failed_when: false
           when: inventory_hostname in groups['reporter']
 
-        - name: Save the deployed Git revision
+        - name: Gitリビジョンを保存する
           ansible.builtin.copy:
             content: "{{ deployed_revision.stdout | default('unknown', true) }}\n"
             dest: "{{ session_dir }}/git-revision.txt"
             mode: "0644"
           when: inventory_hostname in groups['reporter']
 
-        - name: Build the application on app hosts
+        - name: アプリホストでアプリをビルドする
           ansible.builtin.command:
             argv: [/bin/bash, -lc, "{{ build_command }}"]
             chdir: "{{ remote_project_root }}"
@@ -58,7 +58,7 @@
             - inventory_hostname in groups['app']
             - build_command | length > 0
 
-        - name: Restart the application on app hosts
+        - name: アプリホストでアプリを再起動する
           ansible.builtin.command:
             argv: [/bin/bash, -lc, "{{ restart_command }}"]
             chdir: "{{ remote_project_root }}"
@@ -67,7 +67,7 @@
             - inventory_hostname in groups['app']
             - restart_command | length > 0
 
-        - name: Start netdata for the measurement window
+        - name: 計測中のnetdataを起動する
           ansible.builtin.systemd:
             name: "{{ netdata_service }}"
             state: started
@@ -75,13 +75,13 @@
           become: true
           when: netdata_enabled | bool
 
-        - name: Inspect nginx access logs
+        - name: Nginxのaccess logを確認する
           ansible.builtin.stat:
             path: "{{ access_log }}"
           register: access_log_stat
           when: inventory_hostname in groups['nginx']
 
-        - name: Reset nginx access logs before the benchmark
+        - name: ベンチ前にnginxのaccess logを空にする
           ansible.builtin.command:
             argv: [truncate, -s, "0", "{{ access_log }}"]
           become: true
@@ -90,13 +90,13 @@
             - inventory_hostname in groups['nginx']
             - access_log_stat.stat.exists | default(false)
 
-        - name: Inspect MySQL slow-query logs
+        - name: MySQLのslow query logを確認する
           ansible.builtin.stat:
             path: "{{ slow_log }}"
           register: slow_log_stat
           when: inventory_hostname in groups['db']
 
-        - name: Reset MySQL slow-query logs before the benchmark
+        - name: ベンチ前にMySQLのslow query logを空にする
           ansible.builtin.command:
             argv: [truncate, -s, "0", "{{ slow_log }}"]
           become: true
@@ -105,7 +105,7 @@
             - inventory_hostname in groups['db']
             - slow_log_stat.stat.exists | default(false)
 
-        - name: Ensure MySQL slow-query logging is enabled
+        - name: MySQLのslow query logが有効であることを確認する
           ansible.builtin.command:
             argv:
               - "{{ mysql_admin_command }}"
@@ -114,32 +114,32 @@
           changed_when: true
           when: inventory_hostname in groups['db']
 
-        - name: Wait until the browser is ready to start the benchmark
+        - name: ブラウザでベンチ開始できるまで待つ
           ansible.builtin.pause:
             prompt: >-
               Preparation is complete. Open the benchmark start screen, then
               press Enter to arm profiling
           when: inventory_hostname == groups['reporter'][0]
 
-        - name: Record measurement start epoch
+        - name: 計測開始時刻を記録する
           ansible.builtin.command:
             argv: [date, +%s]
           register: benchmark_started_epoch
           changed_when: false
 
-        - name: Record human-readable measurement start time
+        - name: 計測開始時刻を文字列で記録する
           ansible.builtin.command:
             argv: [date, --iso-8601=seconds]
           register: benchmark_started_at
           changed_when: false
 
-        - name: Save human-readable measurement start time
+        - name: 計測開始時刻を保存する
           ansible.builtin.copy:
             content: "{{ benchmark_started_at.stdout }}\n"
             dest: "{{ session_dir }}/started-at.txt"
             mode: "0644"
 
-        - name: Start CPU profile capture on app hosts
+        - name: アプリホストでCPUプロファイル取得を開始する
           ansible.builtin.command:
             argv:
               - curl
@@ -160,12 +160,12 @@
             - inventory_hostname in groups['app']
             - pprof_url | length > 0
 
-        - name: Tell the operator to start the browser benchmark
+        - name: ブラウザでベンチを開始するよう案内する
           ansible.builtin.debug:
             msg: "Profiling is armed. Click the benchmark start button now."
           when: inventory_hostname == groups['reporter'][0]
 
-        - name: Wait for the browser benchmark and capture its score
+        - name: ブラウザベンチの終了とスコア入力を待つ
           ansible.builtin.pause:
             prompt: >-
               After the browser benchmark finishes, enter the displayed score
@@ -173,7 +173,7 @@
           register: browser_benchmark_result
           when: inventory_hostname == groups['reporter'][0]
 
-        - name: Save benchmark score
+        - name: ベンチスコアを保存する
           ansible.builtin.copy:
             content: >-
               {{ hostvars[groups['reporter'][0]].browser_benchmark_result.user_input
@@ -182,19 +182,19 @@
             mode: "0644"
           when: inventory_hostname == groups['reporter'][0]
 
-        - name: Record measurement stop epoch
+        - name: 計測終了時刻を記録する
           ansible.builtin.command:
             argv: [date, +%s]
           register: measurement_stopped_epoch
           changed_when: false
 
-        - name: Record human-readable measurement stop time
+        - name: 計測終了時刻を文字列で記録する
           ansible.builtin.command:
             argv: [date, --iso-8601=seconds]
           register: measurement_stopped_at
           changed_when: false
 
-        - name: Wait for CPU profile capture to finish
+        - name: CPUプロファイル取得の完了を待つ
           ansible.builtin.async_status:
             jid: "{{ pprof_job.ansible_job_id }}"
           register: pprof_result
@@ -207,21 +207,21 @@
             - pprof_url | length > 0
 
       always:
-        - name: Record fallback stop epoch after an interrupted benchmark
+        - name: 中断時の計測終了時刻を記録する
           ansible.builtin.command:
             argv: [date, +%s]
           register: fallback_stopped_epoch
           changed_when: false
           when: measurement_stopped_epoch is not defined
 
-        - name: Record fallback stop time after an interrupted benchmark
+        - name: 中断時の計測終了時刻を文字列で記録する
           ansible.builtin.command:
             argv: [date, --iso-8601=seconds]
           register: fallback_stopped_at
           changed_when: false
           when: measurement_stopped_at is not defined
 
-        - name: Select effective measurement stop times
+        - name: 有効な計測終了時刻を選ぶ
           ansible.builtin.set_fact:
             effective_stopped_epoch: >-
               {{ measurement_stopped_epoch.stdout
@@ -232,13 +232,13 @@
                  if measurement_stopped_at is defined
                  else fallback_stopped_at.stdout }}
 
-        - name: Write human-readable measurement stop time
+        - name: 計測終了時刻を保存する
           ansible.builtin.copy:
             content: "{{ effective_stopped_at }}\n"
             dest: "{{ session_dir }}/stopped-at.txt"
             mode: "0644"
 
-        - name: Copy nginx access logs into the session
+        - name: Nginxのaccess logを計測結果へコピーする
           ansible.builtin.copy:
             src: "{{ access_log }}"
             dest: "{{ session_dir }}/access.log"
@@ -251,7 +251,7 @@
             - inventory_hostname in groups['nginx']
             - access_log_stat.stat.exists | default(false)
 
-        - name: Copy MySQL slow-query logs into the session
+        - name: MySQLのslow query logを計測結果へコピーする
           ansible.builtin.copy:
             src: "{{ slow_log }}"
             dest: "{{ session_dir }}/mysql-slow.log"
@@ -264,7 +264,7 @@
             - inventory_hostname in groups['db']
             - slow_log_stat.stat.exists | default(false)
 
-        - name: Analyze nginx access logs with alp
+        - name: AlpでNginxのaccess logを解析する
           ansible.builtin.command:
             argv: >-
               {{ ['alp', access_log_format, '--file', session_dir + '/access.log',
@@ -274,14 +274,14 @@
           failed_when: false
           when: inventory_hostname in groups['nginx']
 
-        - name: Save alp report
+        - name: Alp解析結果を保存する
           ansible.builtin.copy:
             content: "{{ alp_result.stdout | default('No access log data collected.', true) }}\n"
             dest: "{{ session_dir }}/alp.txt"
             mode: "0644"
           when: inventory_hostname in groups['nginx']
 
-        - name: Analyze MySQL slow-query logs
+        - name: MySQLのslow query logを解析する
           ansible.builtin.command:
             argv: >-
               {{ ['pt-query-digest', '--limit', '20'] + pt_query_digest_options +
@@ -291,20 +291,20 @@
           failed_when: false
           when: inventory_hostname in groups['db']
 
-        - name: Save slow-query report
+        - name: スロークエリ解析結果を保存する
           ansible.builtin.copy:
             content: "{{ slow_query_result.stdout | default('No slow-query data collected.', true) }}\n"
             dest: "{{ session_dir }}/pt-query-digest.txt"
             mode: "0644"
           when: inventory_hostname in groups['db']
 
-        - name: Inspect captured CPU profile
+        - name: 取得したCPUプロファイルを確認する
           ansible.builtin.stat:
             path: "{{ session_dir }}/cpu.pprof"
           register: cpu_profile_stat
           when: inventory_hostname in groups['app']
 
-        - name: Render cumulative CPU profile
+        - name: 累積CPUプロファイルを解析する
           ansible.builtin.command:
             argv:
               - go
@@ -321,21 +321,21 @@
             - cpu_profile_stat.stat.exists | default(false)
             - cpu_profile_stat.stat.size | default(0) > 0
 
-        - name: Save CPU profile report
+        - name: CPUプロファイル解析結果を保存する
           ansible.builtin.copy:
             content: "{{ pprof_top_result.stdout | default('No CPU profile collected.', true) }}\n"
             dest: "{{ session_dir }}/pprof.txt"
             mode: "0644"
           when: inventory_hostname in groups['app']
 
-        - name: Create netdata artifact directory
+        - name: Netdata結果用ディレクトリを作る
           ansible.builtin.file:
             path: "{{ session_dir }}/netdata"
             state: directory
             mode: "0755"
           when: netdata_enabled | bool
 
-        - name: Download netdata charts for the measurement window
+        - name: 計測期間のnetdataチャートを取得する
           ansible.builtin.command:
             argv:
               - curl
@@ -361,7 +361,7 @@
             - netdata_enabled | bool
             - benchmark_started_epoch.stdout is defined
 
-        - name: Summarize netdata averages and maxima
+        - name: Netdataの平均値と最大値を集計する
           ansible.builtin.shell:
             cmd: |
               set -o pipefail
@@ -387,7 +387,7 @@
           failed_when: false
           when: netdata_enabled | bool
 
-        - name: Remove raw logs after analysis
+        - name: 解析後に生ログを削除する
           ansible.builtin.file:
             path: "{{ item }}"
             state: absent
@@ -395,7 +395,7 @@
             - "{{ session_dir }}/access.log"
             - "{{ session_dir }}/mysql-slow.log"
 
-        - name: Remove raw netdata responses after summarization
+        - name: 集計後にnetdataの生レスポンスを削除する
           ansible.builtin.file:
             path: "{{ session_dir }}/netdata"
             state: absent

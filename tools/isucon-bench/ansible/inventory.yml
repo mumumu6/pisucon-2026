@@ -1,24 +1,18 @@
 all:
   vars:
     ansible_user: isucon
-    ansible_become: true
-    # 手元PCのssh-agentを使ってprivate repositoryへ接続します。
-    # 秘密鍵ファイル自体は管理対象サーバーへコピーしません。
-    ansible_ssh_common_args: -o ForwardAgent=yes
   children:
     app:
       hosts:
-        isucon-app-1:
+        isucon-1:
           ansible_host: 18.183.138.21
     db:
       hosts:
-        isucon-db-1:
-          ansible_host: 18.183.138.21
+        isucon-1:
     nginx:
       hosts:
-        isucon-nginx-1:
-          ansible_host: 18.183.138.21
+        isucon-1:
     # 開始案内、スコア入力、統合レポートの基準にするホストを1台指定します。
     reporter:
       hosts:
-        isucon-app-1:
+        isucon-1:

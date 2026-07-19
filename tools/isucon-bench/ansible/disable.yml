@@ -1,19 +1,19 @@
 ---
-- name: Remove host monitoring overhead
+- name: ホスト監視を停止する
   hosts: all
   become: true
   tasks:
-    - name: Stop and disable netdata
+    - name: Netdataを停止・自動起動を無効にする
       ansible.builtin.systemd:
         name: "{{ netdata_service }}"
         state: stopped
         enabled: false
 
-- name: Disable MySQL slow-query logging
+- name: MySQLのslow query logを無効にする
   hosts: db
   become: true
   tasks:
-    - name: Disable slow-query logging
+    - name: スロークエリログを停止する
       ansible.builtin.command:
         argv:
           - "{{ mysql_admin_command }}"

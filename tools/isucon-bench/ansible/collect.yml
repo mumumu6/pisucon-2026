@@ -1,34 +1,34 @@
 ---
-- name: Select a benchmark session on the reporter
+- name: レポーター用ホストで回収対象のベンチセッションを選ぶ
   hosts: reporter
   gather_facts: false
   vars:
     requested_session: ""
   tasks:
-    - name: Find benchmark sessions
+    - name: ベンチセッション一覧を取得する
       ansible.builtin.find:
         paths: "{{ remote_log_root }}"
         file_type: directory
         recurse: false
       register: benchmark_sessions
 
-    - name: Require at least one benchmark session
+    - name: ベンチセッションが存在することを確認する
       ansible.builtin.assert:
         that: benchmark_sessions.files | length > 0
         fail_msg: "No benchmark sessions exist below {{ remote_log_root }}"
 
-    - name: Select requested or latest session
+    - name: 指定したまたは最新のセッションを選ぶ
       ansible.builtin.set_fact:
         selected_session: >-
           {{ requested_session if requested_session | length > 0 else
              (benchmark_sessions.files | sort(attribute='mtime', reverse=true) | first).path | basename }}
 
-    - name: Validate session identifier
+    - name: セッションIDを検証する
       ansible.builtin.assert:
         that: selected_session is match('^[0-9]{8}-[0-9]{6}$')
         fail_msg: "Invalid benchmark session: {{ selected_session }}"
 
-- name: Fetch benchmark artifacts from every fleet host
+- name: 全ホストからベンチ結果を回収する
   hosts: all
   gather_facts: false
   vars:
@@ -47,7 +47,7 @@
       - started-at.txt
       - stopped-at.txt
   tasks:
-    - name: Create the local session directory
+    - name: 手元PCにセッション用ディレクトリを作る
       ansible.builtin.file:
         path: "{{ local_session_dir }}"
         state: directory
@@ -55,18 +55,18 @@
       delegate_to: localhost
       when: inventory_hostname == groups['reporter'][0]
 
-    - name: Check for per-host artifact layout
+    - name: ホスト別の結果ディレクトリを確認する
       ansible.builtin.stat:
         path: "{{ per_host_session_dir }}"
       register: per_host_session_stat
 
-    - name: Select new or legacy artifact path
+    - name: 回収する結果ディレクトリを選ぶ
       ansible.builtin.set_fact:
         selected_remote_dir: >-
           {{ per_host_session_dir if per_host_session_stat.stat.isdir | default(false)
              else remote_log_root + '/' + selected_session }}
 
-    - name: Find files in the selected session
+    - name: 回収対象ファイルを探す
       ansible.builtin.find:
         paths: "{{ selected_remote_dir }}"
         file_type: file
@@ -76,7 +76,7 @@
         - per_host_session_stat.stat.isdir | default(false) or
           inventory_hostname in groups['reporter']
 
-    - name: Fetch session files while preserving host and relative paths
+    - name: ホスト別の構成を保って結果を手元へ取得する
       ansible.builtin.fetch:
         src: "{{ item.path }}"
         dest: "{{ local_session_dir }}/{{ inventory_hostname }}/{{ item.path | regex_replace('^' + selected_remote_dir + '/', '') }}"
@@ -86,7 +86,7 @@
         label: "{{ inventory_hostname }}/{{ item.path | basename }}"
       when: item.path | basename in collected_artifact_names
 
-    - name: Render the merged benchmark report locally
+    - name: 手元PCで統合レポートを生成する
       ansible.builtin.template:
         src: templates/fleet-report.md.j2
         dest: "{{ local_session_dir }}/REPORT.md"
@@ -94,7 +94,7 @@
       delegate_to: localhost
       when: inventory_hostname == groups['reporter'][0]
 
-    - name: Show local report path
+    - name: 手元PCのレポート保存先を表示する
       ansible.builtin.debug:
         msg: "Collected {{ selected_session }} into {{ local_session_dir }}"
       when: inventory_hostname == groups['reporter'][0]
