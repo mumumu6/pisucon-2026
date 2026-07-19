@@ -19,6 +19,11 @@
           - percona-toolkit
         state: present
         update_cache: true
+        update_cache_retries: 5
+        update_cache_retry_max_delay: 12
+        # Freshly created ISUCON instances may still run cloud-init's apt job.
+        # Wait for its dpkg lock instead of failing the bootstrap.
+        lock_timeout: 600
 
     - name: Check supported alp architecture
       ansible.builtin.assert:

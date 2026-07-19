@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+tool_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+inventory="${ANSIBLE_INVENTORY:-$tool_root/ansible/inventory.yml}"
+requested_session="${1:-}"
+
+command -v ansible-inventory >/dev/null || { echo "ansible-inventory is required" >&2; exit 1; }
+command -v gh >/dev/null || { echo "gh is required; run gh auth login" >&2; exit 1; }
+command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
+[[ -f "$inventory" ]] || { echo "inventory not found: $inventory" >&2; exit 1; }
+
+inventory_json="$(ansible-inventory --inventory "$inventory" --list)"
+reporter="$(jq --exit-status --raw-output '.reporter.hosts | select(length == 1) | .[0]' <<< "$inventory_json")" || {
+  echo "inventory must define exactly one reporter" >&2
+  exit 1
+}
+config="$(jq --compact-output --arg host "$reporter" '._meta.hostvars[$host]' <<< "$inventory_json")"
+log_root="$(jq --exit-status --raw-output '.local_log_root' <<< "$config")"
+github_repository="$(jq --raw-output '.github_repository // ""' <<< "$config")"
+create_issue="$(jq --raw-output '.create_github_issue // true' <<< "$config")"
+[[ "$log_root" == '~/'* ]] && log_root="$HOME/${log_root#\~/}"
+
+if [[ -n "$requested_session" ]]; then
+  [[ "$requested_session" = /* ]] && session="$requested_session" || session="$log_root/$requested_session"
+else
+  session="$(find "$log_root" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
+fi
+[[ -n "${session:-}" && -d "$session" ]] || { echo "benchmark session not found" >&2; exit 1; }
+
+report="$session/REPORT.md"
+[[ -f "$report" ]] || { echo "report is missing; run make bench or make collect" >&2; exit 1; }
+[[ "$create_issue" == true ]] || { echo "GitHub Issue creation is disabled"; exit 0; }
+
+issue_body="$(mktemp)"
+trap 'rm -f "$issue_body" "${comment_body:-}"' EXIT
+head -c 58000 "$report" > "$issue_body"
+if [[ "$(wc -c < "$report")" -gt 58000 ]]; then
+  printf '\n\n... truncated; the complete report remains below local_log_root.\n' >> "$issue_body"
+fi
+
+title="ISUCON benchmark $(basename "$session")"
+if [[ -n "$github_repository" ]]; then
+  issue_url="$(gh issue create --repo "$github_repository" --title "$title" --body-file "$issue_body")"
+else
+  issue_url="$(gh issue create --title "$title" --body-file "$issue_body")"
+fi
+
+while IFS= read -r artifact; do
+  comment_body="$(mktemp)"
+  {
+    printf '## %s: %s\n\n```text\n' "$(basename "$artifact" .txt)" "$(basename "$(dirname "$artifact")")"
+    head -c 58000 "$artifact"
+    if [[ "$(wc -c < "$artifact")" -gt 58000 ]]; then
+      printf '\n... truncated; full output remains below local_log_root.\n'
+    fi
+    printf '\n```\n'
+  } > "$comment_body"
+  gh issue comment "$issue_url" --body-file "$comment_body"
+  rm -f "$comment_body"
+  unset comment_body
+done < <(find "$session" -mindepth 2 -maxdepth 2 -type f \
+  \( -name 'alp.txt' -o -name 'pt-query-digest.txt' -o -name 'pprof.txt' -o -name 'netdata.txt' \) | sort)
+
+echo "GitHub Issue created: $issue_url"

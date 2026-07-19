@@ -3,13 +3,21 @@
 ISUCONサーバーの再構築、ベンチ前後の計測、結果回収をAnsibleで自動化します。
 利用方法と運用コマンドはこのREADMEに集約しています。
 
+## 手元PCの前提ツール
+
+手元PCには `ansible-playbook`、`ansible-inventory`、`jq`、`git`、`gh` が必要です。
+Ubuntuでは初回に次を実行します。
+
+```bash
+sudo apt update
+sudo apt install -y ansible jq git gh
+```
+
 ## クイックスタート
 
 手元PCで実行します。
 
 ```bash
-make setup
-
 $EDITOR tools/isucon-bench/ansible/inventory.yml
 $EDITOR tools/isucon-bench/ansible/group_vars/all.yml
 
@@ -18,8 +26,7 @@ make instrument-on
 make bench
 ```
 
-`make setup` はAnsible、jq、git、ghを手元PCへ導入します。`inventory.yml` と
-`group_vars/all.yml` はどちらも最初からGit管理されています。
+`inventory.yml` と `group_vars/all.yml` はどちらも最初からGit管理されています。
 
 ### 設定ファイル
 
@@ -127,7 +134,6 @@ cloneまたは指定branchへ更新します。private repositoryにはssh-agent
 
 ```bash
 make help
-make setup          # 手元PCの初回準備
 make bootstrap      # サーバー再作成後の復元
 make fleet-setup    # Git操作なしで計測ツールだけ導入
 make bench
@@ -158,7 +164,7 @@ ansible-playbook -vv -i "$ANSIBLE_INVENTORY" tools/isucon-bench/ansible/setup.ym
 ansible-lint tools/isucon-bench/ansible
 ```
 
-`bench.yml` はCLIがセッションIDなどを渡すため、直接実行せず `make bench` を使います。
+`bench.yml` はMakefileがセッションIDなどを渡すため、直接実行せず `make bench` を使います。
 
 ### Ansible Vault
 
@@ -187,13 +193,13 @@ make collect SESSION=<セッションID>
 
 ```text
 Makefile
-└── tools/isucon-bench/bin/isucon-bench
-    ├── ansible/setup.yml       サーバーへ計測ツールを導入
-    ├── ansible/git.yml         repositoryをclone・更新
-    ├── ansible/instrument.yml  pprofを追加・削除
-    ├── ansible/bench.yml       ベンチ前処理・計測・解析
-    ├── ansible/collect.yml     成果物の回収・レポート統合
-    └── ansible/disable.yml     計測負荷を停止
+├── tools/isucon-bench/ansible/setup.yml       サーバーへ計測ツールを導入
+├── tools/isucon-bench/ansible/git.yml         repositoryをclone・更新
+├── tools/isucon-bench/ansible/instrument.yml  pprofを追加・削除
+├── tools/isucon-bench/ansible/bench.yml       ベンチ前処理・計測・解析
+├── tools/isucon-bench/ansible/collect.yml     成果物の回収・レポート統合
+├── tools/isucon-bench/ansible/disable.yml     計測負荷を停止
+└── tools/isucon-bench/scripts/publish          GitHub Issue投稿
 ```
 
 pprofは設定の検証によりlocalhostだけで待ち受けます。netdata側もlocalhost bindに設定し、
