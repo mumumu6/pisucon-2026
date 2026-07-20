@@ -113,11 +113,7 @@ func postIsu(c echo.Context) error {
 	var image []byte
 
 	if useDefaultImage {
-		image, err = ioutil.ReadFile(defaultIconFilePath)
-		if err != nil {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
+		image = defaultIconImage
 	} else {
 		file, err := fh.Open()
 		if err != nil {
@@ -149,7 +145,7 @@ func postIsu(c echo.Context) error {
 	}
 
 	reqJIA.Header.Set("Content-Type", "application/json")
-	res, err := http.DefaultClient.Do(reqJIA)
+	res, err := jiaHTTPClient.Do(reqJIA)
 	if err != nil {
 		c.Logger().Errorf("failed to request to JIAService: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
@@ -174,7 +170,7 @@ func postIsu(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	_, err = db.Exec("INSERT INTO `isu`"+
+	result, err := db.Exec("INSERT INTO `isu`"+
 		"	(`jia_isu_uuid`, `name`, `image`, `jia_user_id`, `character`) VALUES (?, ?, ?, ?, ?)",
 		jiaIsuUUID, isuName, image, jiaUserID, isuFromJIA.Character)
 	if err != nil {
@@ -188,15 +184,17 @@ func postIsu(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	var isu Isu
-	err = db.Get(
-		&isu,
-		"SELECT `id`, `jia_isu_uuid`, `name`, `character` FROM `isu`"+
-			" WHERE `jia_user_id` = ? AND `jia_isu_uuid` = ?",
-		jiaUserID, jiaIsuUUID)
+	id, err := result.LastInsertId()
 	if err != nil {
 		c.Logger().Errorf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	isu := Isu{
+		ID:         int(id),
+		JIAIsuUUID: jiaIsuUUID,
+		Name:       isuName,
+		Character:  isuFromJIA.Character,
 	}
 
 	setCachedIsuExistence(jiaIsuUUID, true)

@@ -3,9 +3,7 @@ package main
 import (
 	"crypto/hmac"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -26,6 +24,11 @@ func init() {
 	jiaJWTSigningKey, err = jwt.ParseECPublicKeyFromPEM(key)
 	if err != nil {
 		log.Fatalf("failed to parse ECDSA public key: %v", err)
+	}
+
+	defaultIconImage, err = ioutil.ReadFile(defaultIconFilePath)
+	if err != nil {
+		log.Fatalf("failed to read default icon: %v", err)
 	}
 }
 
@@ -79,13 +82,20 @@ func getUserIDFromSession(c echo.Context) (string, int, error) {
 }
 
 func getJIAServiceURL() string {
-	var url string
-	err := db.Get(&url, "SELECT `url` FROM `isu_association_config` WHERE `name` = ?", "jia_service_url")
-	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			log.Print(err)
-		}
+	jiaServiceURLMu.RLock()
+	url := jiaServiceURL
+	jiaServiceURLMu.RUnlock()
+	if url == "" {
 		return defaultJIAServiceURL
 	}
 	return url
+}
+
+func setJIAServiceURL(url string) {
+	if url == "" {
+		url = defaultJIAServiceURL
+	}
+	jiaServiceURLMu.Lock()
+	jiaServiceURL = url
+	jiaServiceURLMu.Unlock()
 }

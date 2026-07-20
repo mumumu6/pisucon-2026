@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"database/sql"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -46,6 +47,22 @@ var (
 	jiaJWTSigningKey *ecdsa.PublicKey
 
 	postIsuConditionTargetBaseURL string // JIAへのactivate時に登録する，ISUがconditionを送る先のURL
+
+	// JIA activate 用。DefaultClient は MaxIdleConnsPerHost=2 なので同時登録で接続を作り直しやすい。
+	jiaHTTPClient = &http.Client{
+		Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			MaxIdleConns:          128,
+			MaxIdleConnsPerHost:   128,
+			IdleConnTimeout:       90 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}
+
+	jiaServiceURLMu sync.RWMutex
+	jiaServiceURL   = defaultJIAServiceURL
+
+	defaultIconImage []byte
 
 	trendCache = struct {
 		sync.RWMutex

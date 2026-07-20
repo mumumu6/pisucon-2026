@@ -41,6 +41,7 @@ func postInitialize(c echo.Context) error {
 		c.Logger().Errorf("db error : %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	setJIAServiceURL(request.JIAServiceURL)
 
 	// 大本の condition → 仮想現在時刻 → グラフキャッシュ の順で温める
 	if err := warmConditionStore(); err != nil {
