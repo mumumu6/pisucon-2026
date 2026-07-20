@@ -4,11 +4,6 @@ tcp_nodelay on;
 keepalive_timeout {{ nginx_keepalive_timeout }};
 keepalive_requests {{ nginx_keepalive_requests }};
 
-upstream isucondition_app {
-    server {{ nginx_app_backend_host }}:{{ nginx_app_port }};
-    keepalive {{ nginx_upstream_keepalive }};
-}
-
 server {
     listen {{ nginx_listen_port }} reuseport;
     listen [::]:{{ nginx_listen_port }};
@@ -63,9 +58,7 @@ server {
     }
 
     location = /initialize {
-        proxy_pass http://isucondition_app;
-        proxy_http_version 1.1;
-        proxy_set_header Connection "";
+        proxy_pass http://{{ nginx_app_backend_host }}:{{ nginx_app_port }};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -73,9 +66,7 @@ server {
     }
 
     location ^~ /api/ {
-        proxy_pass http://isucondition_app;
-        proxy_http_version 1.1;
-        proxy_set_header Connection "";
+        proxy_pass http://{{ nginx_app_backend_host }}:{{ nginx_app_port }};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
