@@ -29,10 +29,10 @@ const (
 	scoreConditionLevelCritical = 1
 	trendCacheTTL               = 400 * time.Millisecond
 	trendCacheMaxAge            = 900 * time.Millisecond
-	conditionBatchMaxRequests   = 128
-	conditionBatchWait          = 5 * time.Millisecond
-	conditionWriterCount = 4
-	graphCacheWarmWorkers = 8
+	conditionBatchMaxRequests   = 256
+	conditionBatchWait          = 2 * time.Millisecond
+	conditionWriterCount        = 8
+	graphCacheWarmWorkers       = 8
 )
 
 var graphCacheLocation = time.FixedZone("Asia/Tokyo", 9*60*60)
@@ -71,10 +71,10 @@ var (
 		values map[string]isuMetadataCacheEntry
 	}{values: make(map[string]isuMetadataCacheEntry)}
 
-	isuLatestTimestampCache = struct {
+	isuLatestConditionCache = struct {
 		sync.RWMutex
-		values map[string]int64
-	}{values: make(map[string]int64)}
+		values map[string]isuLatestConditionEntry
+	}{values: make(map[string]isuLatestConditionEntry)}
 
 	isuIconCache = struct {
 		sync.RWMutex
@@ -97,6 +97,13 @@ type graphCacheEntry struct {
 	response []GraphResponse
 	// sealedThrough: この Unix 時刻未満の時間帯は確定済み。開いている時間帯は含めない。
 	sealedThrough int64
+}
+
+type isuLatestConditionEntry struct {
+	Timestamp int64
+	IsSitting bool
+	Condition string
+	Message   string
 }
 
 type isuIconCacheEntry struct {

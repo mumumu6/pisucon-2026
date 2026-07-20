@@ -293,14 +293,15 @@ func calculateGraphDataPoint(isuConditions []isuConditionGraphRow) (GraphDataPoi
 	}, nil
 }
 
-// warmIsuLatestTimestamps は大本メモリの末尾 timestamp を仮想現在時刻にする。
+// warmIsuLatestTimestamps は大本メモリの末尾を最新 condition にする。
 func warmIsuLatestTimestamps() {
 	conditionStore.RLock()
 	defer conditionStore.RUnlock()
 	for uuid, mem := range conditionStore.byIsu {
 		mem.RLock()
 		if n := len(mem.items); n > 0 {
-			setCachedIsuLatestTimestamp(uuid, mem.items[n-1].Timestamp)
+			last := mem.items[n-1]
+			setCachedIsuLatestCondition(uuid, last.Timestamp, last.IsSitting, last.Condition, last.Message)
 		}
 		mem.RUnlock()
 	}

@@ -216,11 +216,16 @@ func writeConditionBatch(batch []conditionWriteRequest) error {
 				sealGraphHoursInRange(jiaIsuUUID, oldHour, newHour)
 			}
 		}
-		setCachedIsuLatestTimestamp(jiaIsuUUID, newTs)
+		setCachedIsuLatestCondition(
+			jiaIsuUUID,
+			newTs,
+			latest.condition.IsSitting,
+			latest.condition.Condition,
+			latest.condition.Message,
+		)
 	}
 
 	// 永続化は後ろ。1文の INSERT 自体が原子的で、autocommit ですぐロック解放される。
-	// latest UPDATE は別クエリ（失敗しても次バッチで埋まる）。
 	_, err := db.Exec(
 		"INSERT IGNORE INTO `isu_condition`"+
 			" (`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`) VALUES "+
@@ -238,12 +243,7 @@ func writeConditionBatch(batch []conditionWriteRequest) error {
 	sort.Strings(uuids)
 	updatedLatest := make([]latestCondition, 0, len(uuids))
 	for _, jiaIsuUUID := range uuids {
-		latest := latestByIsu[jiaIsuUUID]
-		cachedTimestamp, cached := getCachedIsuLatestTimestamp(jiaIsuUUID)
-		if cached && latest.condition.Timestamp < cachedTimestamp {
-			continue
-		}
-		updatedLatest = append(updatedLatest, latest)
+		updatedLatest = append(updatedLatest, latestByIsu[jiaIsuUUID])
 	}
 	if len(updatedLatest) == 0 {
 		return nil
@@ -295,9 +295,6 @@ func writeConditionBatch(batch []conditionWriteRequest) error {
 
 	if _, err = db.Exec(updateQuery.String(), updateArgs...); err != nil {
 		return err
-	}
-	for _, latest := range updatedLatest {
-		setCachedIsuLatestTimestamp(latest.jiaIsuUUID, latest.condition.Timestamp)
 	}
 	return nil
 }

@@ -74,28 +74,45 @@ func setCachedIsuMetadata(jiaIsuUUID, jiaUserID, name string) {
 	isuMetadataCache.Unlock()
 }
 
-// clearIsuLatestTimestampCache は各 ISU の仮想現在時刻キャッシュを捨てる（initialize 時）。
-func clearIsuLatestTimestampCache() {
-	isuLatestTimestampCache.Lock()
-	isuLatestTimestampCache.values = make(map[string]int64)
-	isuLatestTimestampCache.Unlock()
+// clearIsuLatestConditionCache は各 ISU の最新 condition キャッシュを捨てる（initialize 時）。
+func clearIsuLatestConditionCache() {
+	isuLatestConditionCache.Lock()
+	isuLatestConditionCache.values = make(map[string]isuLatestConditionEntry)
+	isuLatestConditionCache.Unlock()
 }
 
 // getCachedIsuLatestTimestamp はその ISU の仮想現在時刻（最新 condition の unix）を返す。
 func getCachedIsuLatestTimestamp(jiaIsuUUID string) (int64, bool) {
-	isuLatestTimestampCache.RLock()
-	timestamp, ok := isuLatestTimestampCache.values[jiaIsuUUID]
-	isuLatestTimestampCache.RUnlock()
-	return timestamp, ok
+	isuLatestConditionCache.RLock()
+	entry, ok := isuLatestConditionCache.values[jiaIsuUUID]
+	isuLatestConditionCache.RUnlock()
+	if !ok {
+		return 0, false
+	}
+	return entry.Timestamp, true
 }
 
-// setCachedIsuLatestTimestamp は仮想現在時刻を進める（より新しい timestamp のときだけ）。
-func setCachedIsuLatestTimestamp(jiaIsuUUID string, timestamp int64) {
-	isuLatestTimestampCache.Lock()
-	if cachedTimestamp, ok := isuLatestTimestampCache.values[jiaIsuUUID]; !ok || timestamp > cachedTimestamp {
-		isuLatestTimestampCache.values[jiaIsuUUID] = timestamp
+// getCachedIsuLatestCondition は一覧・trend 用の最新 condition を返す。
+func getCachedIsuLatestCondition(jiaIsuUUID string) (isuLatestConditionEntry, bool) {
+	isuLatestConditionCache.RLock()
+	entry, ok := isuLatestConditionCache.values[jiaIsuUUID]
+	isuLatestConditionCache.RUnlock()
+	return entry, ok
+}
+
+// setCachedIsuLatestCondition は最新 condition をメモリに載せる（より新しいときだけ）。
+func setCachedIsuLatestCondition(jiaIsuUUID string, timestamp int64, isSitting bool, condition, message string) {
+	isuLatestConditionCache.Lock()
+	defer isuLatestConditionCache.Unlock()
+	if cached, ok := isuLatestConditionCache.values[jiaIsuUUID]; ok && timestamp < cached.Timestamp {
+		return
 	}
-	isuLatestTimestampCache.Unlock()
+	isuLatestConditionCache.values[jiaIsuUUID] = isuLatestConditionEntry{
+		Timestamp: timestamp,
+		IsSitting: isSitting,
+		Condition: condition,
+		Message:   message,
+	}
 }
 
 func clearIsuIconCache() {

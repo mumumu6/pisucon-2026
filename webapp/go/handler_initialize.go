@@ -27,7 +27,7 @@ func postInitialize(c echo.Context) error {
 	clearIsuExistenceCache()
 	clearIsuOwnerCache()
 	clearIsuMetadataCache()
-	clearIsuLatestTimestampCache()
+	clearIsuLatestConditionCache()
 	clearIsuIconCache()
 	clearGraphCache()
 	clearConditionStore()

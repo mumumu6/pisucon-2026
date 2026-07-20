@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -101,43 +102,66 @@ func refreshTrendCache(done chan struct{}) ([]byte, error) {
 
 func buildTrendJSON() ([]byte, error) {
 	type trendRow struct {
-		IsuID           int       `db:"isu_id"`
-		Character       string    `db:"character"`
-		LatestTimestamp time.Time `db:"latest_timestamp"`
-		LatestCondition string    `db:"latest_condition"`
+		IsuID      int    `db:"isu_id"`
+		JIAIsuUUID string `db:"jia_isu_uuid"`
+		Character  string `db:"character"`
 	}
 
 	rows := []trendRow{}
 	err := db.Select(&rows, `
-		SELECT isu.id AS isu_id, isu.character, isu.latest_timestamp, isu.latest_condition
-		FROM isu
-		WHERE isu.latest_timestamp IS NOT NULL
-		ORDER BY isu.character DESC, isu.latest_timestamp DESC`)
+		SELECT isu.id AS isu_id, isu.jia_isu_uuid, isu.character
+		FROM isu`)
 	if err != nil {
 		return nil, fmt.Errorf("select trend rows: %w", err)
 	}
 
+	type trendItem struct {
+		isuID     int
+		character string
+		timestamp int64
+		condition string
+	}
+	items := make([]trendItem, 0, len(rows))
+	for _, row := range rows {
+		latest, ok := getCachedIsuLatestCondition(row.JIAIsuUUID)
+		if !ok {
+			continue
+		}
+		items = append(items, trendItem{
+			isuID:     row.IsuID,
+			character: row.Character,
+			timestamp: latest.Timestamp,
+			condition: latest.Condition,
+		})
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].character != items[j].character {
+			return items[i].character > items[j].character
+		}
+		return items[i].timestamp > items[j].timestamp
+	})
+
 	res := []*TrendResponse{}
 	trendByCharacter := map[string]*TrendResponse{}
-	for _, row := range rows {
-		trend, ok := trendByCharacter[row.Character]
+	for _, item := range items {
+		trend, ok := trendByCharacter[item.character]
 		if !ok {
 			// nil slice は JSON で null になり、フロントの forEach が落ちる
 			trend = &TrendResponse{
-				Character: row.Character,
+				Character: item.character,
 				Info:      []*TrendCondition{},
 				Warning:   []*TrendCondition{},
 				Critical:  []*TrendCondition{},
 			}
-			trendByCharacter[row.Character] = trend
+			trendByCharacter[item.character] = trend
 			res = append(res, trend)
 		}
 
-		conditionLevel, err := calculateConditionLevel(row.LatestCondition)
+		conditionLevel, err := calculateConditionLevel(item.condition)
 		if err != nil {
 			return nil, err
 		}
-		trendCondition := &TrendCondition{ID: row.IsuID, Timestamp: row.LatestTimestamp.Unix()}
+		trendCondition := &TrendCondition{ID: item.isuID, Timestamp: item.timestamp}
 		switch conditionLevel {
 		case conditionLevelInfo:
 			trend.Info = append(trend.Info, trendCondition)
@@ -148,8 +172,7 @@ func buildTrendJSON() ([]byte, error) {
 		}
 	}
 
-	// 複合indexを逆順走査することで各condition配列はtimestamp DESC順になる。
-	// characterの並びだけ元のASC順へ戻す。
+	// character は DESC で集めたので ASC に戻す
 	reverseTrendResponses(res)
 	body, err := json.Marshal(res)
 	if err != nil {

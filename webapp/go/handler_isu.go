@@ -40,7 +40,22 @@ func getIsuList(c echo.Context) error {
 		setCachedIsuOwner(isu.JIAIsuUUID, jiaUserID)
 		setCachedIsuMetadata(isu.JIAIsuUUID, jiaUserID, isu.Name)
 		var formattedCondition *GetIsuConditionResponse
-		if isu.LatestTimestamp.Valid {
+		if latest, ok := getCachedIsuLatestCondition(isu.JIAIsuUUID); ok {
+			conditionLevel, err := calculateConditionLevel(latest.Condition)
+			if err != nil {
+				c.Logger().Error(err)
+				return c.NoContent(http.StatusInternalServerError)
+			}
+			formattedCondition = &GetIsuConditionResponse{
+				JIAIsuUUID:     isu.JIAIsuUUID,
+				IsuName:        isu.Name,
+				Timestamp:      latest.Timestamp,
+				IsSitting:      latest.IsSitting,
+				Condition:      latest.Condition,
+				ConditionLevel: conditionLevel,
+				Message:        latest.Message,
+			}
+		} else if isu.LatestTimestamp.Valid {
 			conditionLevel, err := calculateConditionLevel(isu.LatestCondition.String)
 			if err != nil {
 				c.Logger().Error(err)
