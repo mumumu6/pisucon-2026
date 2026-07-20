@@ -145,60 +145,39 @@ func (s *conditionMemShard) enqueue(req conditionWriteRequest) {
 	}
 }
 
-func (s *conditionMemShard) takeBatch(max int) []conditionWriteRequest {
+func (s *conditionMemShard) takeAll() []conditionWriteRequest {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.q) == 0 {
 		return nil
 	}
-	n := len(s.q)
-	if n > max {
-		n = max
-	}
-	batch := append([]conditionWriteRequest(nil), s.q[:n]...)
-	s.q = s.q[n:]
-	if len(s.q) == 0 {
-		s.q = s.q[:0]
-	}
+	batch := s.q
+	s.q = make([]conditionWriteRequest, 0, 64)
 	return batch
-}
-
-func (s *conditionMemShard) pending() int {
-	s.mu.Lock()
-	n := len(s.q)
-	s.mu.Unlock()
-	return n
 }
 
 // conditionMemWriter は同一 shard を FIFO でメモリ反映する（HTTP 並列でも順序を守る）。
 // ベンチ中の GET はメモリ参照のみなので DB 永続化はしない（IO/CPU を GET に回す）。
 func conditionMemWriter(s *conditionMemShard) {
 	for range s.wake {
+		// 短時間待って同 shard の到着をまとめてから全部取る
+		timer := time.NewTimer(conditionBatchWait)
+		select {
+		case <-s.wake:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+		case <-timer.C:
+		}
 		for {
-			batch := s.takeBatch(conditionBatchMaxRequests)
+			batch := s.takeAll()
 			if len(batch) == 0 {
 				break
 			}
-			// 短時間待って同 shard の続きをまとめる
-			if len(batch) < conditionBatchMaxRequests {
-				timer := time.NewTimer(conditionBatchWait)
-				select {
-				case <-s.wake:
-					if !timer.Stop() {
-						select {
-						case <-timer.C:
-						default:
-						}
-					}
-					more := s.takeBatch(conditionBatchMaxRequests - len(batch))
-					batch = append(batch, more...)
-				case <-timer.C:
-				}
-			}
 			applyConditionMemoryBatch(batch)
-			if s.pending() == 0 {
-				break
-			}
 		}
 	}
 }

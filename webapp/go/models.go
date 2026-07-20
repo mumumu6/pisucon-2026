@@ -45,7 +45,6 @@ const (
 	trendPhaseUntil1            = 10 * time.Second
 	trendPhaseUntil2            = 20 * time.Second
 	trendPhaseUntil3            = 35 * time.Second
-	conditionBatchMaxRequests   = 512
 	conditionBatchWait          = 1 * time.Millisecond
 	conditionWriterCount        = 128
 	graphCacheWarmWorkers       = 8
