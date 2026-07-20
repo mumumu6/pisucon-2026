@@ -1490,7 +1490,7 @@ func writeConditionBatch(batch []conditionWriteRequest) error {
 	// 明示 TX は不要。1文の INSERT 自体が原子的で、autocommit ですぐロック解放される。
 	// latest UPDATE は別クエリ（失敗しても次バッチで埋まる）。
 	_, err := db.Exec(
-		"INSERT INTO `isu_condition`"+
+		"INSERT IGNORE INTO `isu_condition`"+
 			" (`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`) VALUES "+
 			strings.Join(placeholders, ", "),
 		args...,
