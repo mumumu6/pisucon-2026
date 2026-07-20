@@ -242,6 +242,7 @@ func setCachedIsuLatestCondition(jiaIsuUUID string, timestamp int64, isSitting b
 	isuLatestConditionCache.Unlock()
 	// 一覧 JSON は latest を含むので捨てる
 	invalidateIsuListJSONByIsu(jiaIsuUUID)
+	invalidateOpenHourGraphCache(jiaIsuUUID)
 }
 
 func clearIsuIconCache() {
@@ -255,6 +256,19 @@ func clearGraphCache() {
 	graphCache.Lock()
 	graphCache.values = make(map[string]map[int64]graphCacheEntry)
 	graphCache.Unlock()
+	clearOpenHourGraphCache()
+}
+
+func clearOpenHourGraphCache() {
+	openHourGraphCache.Lock()
+	openHourGraphCache.values = make(map[string]openHourGraphCacheEntry)
+	openHourGraphCache.Unlock()
+}
+
+func invalidateOpenHourGraphCache(jiaIsuUUID string) {
+	openHourGraphCache.Lock()
+	delete(openHourGraphCache.values, jiaIsuUUID)
+	openHourGraphCache.Unlock()
 }
 
 // getCachedGraphJSON は全日確定済みグラフの JSON を返す（不変なので共有してよい）。

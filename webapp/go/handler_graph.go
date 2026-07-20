@@ -1,8 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -166,7 +166,7 @@ func getIsuGraphResponse(jiaIsuUUID string, date time.Time) ([]GraphResponse, er
 	// 開いている時間帯は大本メモリから集計（キャッシュへは書かない。setCachedGraph は複製保存）
 	if !openHour.Before(date) && openHour.Before(dayEnd) {
 		idx := int(openHour.Sub(date) / time.Hour)
-		res[idx] = generateIsuGraphHour(jiaIsuUUID, openHour)
+		res[idx] = getOrGenerateOpenHourGraph(jiaIsuUUID, openHour)
 	}
 
 	// 仮想現在より後の時間帯は空
@@ -184,29 +184,124 @@ func getIsuGraphResponse(jiaIsuUUID string, date time.Time) ([]GraphResponse, er
 	return res, nil
 }
 
-// generateIsuGraphHour は [hourStart, hourStart+1h) を大本メモリから集計する。
+// generateIsuGraphHour は [hourStart, hourStart+1h) を大本メモリから1パスで集計する。
 func generateIsuGraphHour(jiaIsuUUID string, hourStart time.Time) GraphResponse {
 	hourEnd := hourStart.Add(time.Hour)
+	startUnix := hourStart.Unix()
+	endUnix := hourEnd.Unix()
 	resp := GraphResponse{
-		StartAt:             hourStart.Unix(),
-		EndAt:               hourEnd.Unix(),
+		StartAt:             startUnix,
+		EndAt:               endUnix,
 		ConditionTimestamps: []int64{},
 	}
-	rows := conditionsInHourFromMem(jiaIsuUUID, hourStart, hourEnd)
-	if len(rows) == 0 {
+
+	conditionStore.RLock()
+	mem := conditionStore.byIsu[jiaIsuUUID]
+	conditionStore.RUnlock()
+	if mem == nil {
 		return resp
 	}
-	data, err := calculateGraphDataPoint(rows)
-	if err != nil {
+
+	mem.RLock()
+	items := mem.items
+	lo := sort.Search(len(items), func(i int) bool {
+		return items[i].Timestamp >= startUnix
+	})
+	hi := sort.Search(len(items), func(i int) bool {
+		return items[i].Timestamp >= endUnix
+	})
+	if lo >= hi {
+		mem.RUnlock()
 		return resp
 	}
-	timestamps := make([]int64, len(rows))
-	for i := range rows {
-		timestamps[i] = rows[i].Timestamp.Unix()
+
+	n := hi - lo
+	timestamps := make([]int64, n)
+	rawScore := 0
+	sittingCount := 0
+	isBrokenCount := 0
+	isDirtyCount := 0
+	isOverweightCount := 0
+	ok := true
+	for i := lo; i < hi; i++ {
+		item := items[i]
+		timestamps[i-lo] = item.Timestamp
+		meta, found := graphConditionByString[item.Condition]
+		if !found {
+			ok = false
+			break
+		}
+		rawScore += meta.rawScore
+		if item.IsSitting {
+			sittingCount++
+		}
+		if meta.isBroken {
+			isBrokenCount++
+		}
+		if meta.isDirty {
+			isDirtyCount++
+		}
+		if meta.isOverweight {
+			isOverweightCount++
+		}
+	}
+	mem.RUnlock()
+	if !ok {
+		return resp
+	}
+
+	data := GraphDataPoint{
+		Score: rawScore * 100 / 3 / n,
+		Percentage: ConditionsPercentage{
+			Sitting:      sittingCount * 100 / n,
+			IsBroken:     isBrokenCount * 100 / n,
+			IsOverweight: isOverweightCount * 100 / n,
+			IsDirty:      isDirtyCount * 100 / n,
+		},
 	}
 	resp.Data = &data
 	resp.ConditionTimestamps = timestamps
 	return resp
+}
+
+// getOrGenerateOpenHourGraph は当日 open hour を返す。
+// latest が変わっていなければ前回結果を再利用する（TodayGraph 向け）。
+func getOrGenerateOpenHourGraph(jiaIsuUUID string, hourStart time.Time) GraphResponse {
+	hourUnix := hourStart.Unix()
+	latest, hasLatest := getCachedIsuLatestTimestamp(jiaIsuUUID)
+
+	openHourGraphCache.RLock()
+	entry, ok := openHourGraphCache.values[jiaIsuUUID]
+	openHourGraphCache.RUnlock()
+	if ok && entry.hourStart == hourUnix && hasLatest && entry.throughTs == latest {
+		return cloneGraphResponse(entry.response)
+	}
+
+	resp := generateIsuGraphHour(jiaIsuUUID, hourStart)
+	throughTs := latest
+	if n := len(resp.ConditionTimestamps); n > 0 {
+		throughTs = resp.ConditionTimestamps[n-1]
+	}
+	openHourGraphCache.Lock()
+	openHourGraphCache.values[jiaIsuUUID] = openHourGraphCacheEntry{
+		hourStart: hourUnix,
+		throughTs: throughTs,
+		response:  cloneGraphResponse(resp),
+	}
+	openHourGraphCache.Unlock()
+	return resp
+}
+
+func cloneGraphResponse(src GraphResponse) GraphResponse {
+	dst := src
+	if src.ConditionTimestamps != nil {
+		dst.ConditionTimestamps = append([]int64(nil), src.ConditionTimestamps...)
+	}
+	if src.Data != nil {
+		data := *src.Data
+		dst.Data = &data
+	}
+	return dst
 }
 
 // generateIsuGraphDayFromMem は 1 日分を大本メモリから作る（warm 用）。
@@ -255,47 +350,6 @@ func sealGraphHoursInRange(jiaIsuUUID string, fromHour, toHour time.Time) {
 		}
 		setCachedGraph(jiaIsuUUID, day, res, sealedThrough)
 	}
-}
-
-// 複数のISUのコンディションからグラフの一つのデータ点を計算
-// calculateGraphDataPoint は 1 時間帯内の condition 列から score / 割合を計算する。
-func calculateGraphDataPoint(isuConditions []isuConditionGraphRow) (GraphDataPoint, error) {
-	rawScore := 0
-	sittingCount := 0
-	isBrokenCount := 0
-	isDirtyCount := 0
-	isOverweightCount := 0
-
-	for _, condition := range isuConditions {
-		meta, ok := graphConditionByString[condition.Condition]
-		if !ok {
-			return GraphDataPoint{}, fmt.Errorf("invalid condition format")
-		}
-		rawScore += meta.rawScore
-		if condition.IsSitting {
-			sittingCount++
-		}
-		if meta.isBroken {
-			isBrokenCount++
-		}
-		if meta.isDirty {
-			isDirtyCount++
-		}
-		if meta.isOverweight {
-			isOverweightCount++
-		}
-	}
-
-	n := len(isuConditions)
-	return GraphDataPoint{
-		Score: rawScore * 100 / 3 / n,
-		Percentage: ConditionsPercentage{
-			Sitting:      sittingCount * 100 / n,
-			IsBroken:     isBrokenCount * 100 / n,
-			IsOverweight: isOverweightCount * 100 / n,
-			IsDirty:      isDirtyCount * 100 / n,
-		},
-	}, nil
 }
 
 // warmIsuLatestTimestamps は大本メモリの末尾を最新 condition にする。

@@ -136,6 +136,12 @@ var (
 	// ISU 単位でグラフの read-modify-write を直列化する（seal と GET の競合防止）
 	graphBuildMu sync.Map // map[string]*sync.Mutex
 
+	// 当日 open hour のグラフ。latest が変わらなければ再利用する。
+	openHourGraphCache = struct {
+		sync.RWMutex
+		values map[string]openHourGraphCacheEntry
+	}{values: make(map[string]openHourGraphCacheEntry)}
+
 	// 同一 ISU は同じ shard。mem は FIFO で加点反映、db は後続永続化。
 	conditionMemQueues []chan conditionWriteRequest
 )
@@ -146,6 +152,12 @@ type graphCacheEntry struct {
 	sealedThrough int64
 	// jsonBody: 全日 seal 済みのときだけ持つ。GET は組み立て・Marshal を省略できる。
 	jsonBody []byte
+}
+
+type openHourGraphCacheEntry struct {
+	hourStart int64
+	throughTs int64
+	response  GraphResponse
 }
 
 type isuLatestConditionEntry struct {
@@ -212,13 +224,6 @@ type IsuCondition struct {
 }
 
 // GET /api/condition のレスポンスは condition_store で組み立てる。
-
-// グラフ生成用。message は不要。
-type isuConditionGraphRow struct {
-	Timestamp time.Time `db:"timestamp"`
-	IsSitting bool      `db:"is_sitting"`
-	Condition string    `db:"condition"`
-}
 
 // condition 文字列は 8 通りしかないので、グラフ集計用メタデータを事前計算する。
 type graphConditionMeta struct {

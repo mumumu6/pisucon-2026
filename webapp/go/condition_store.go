@@ -182,38 +182,3 @@ func getIsuConditionsFromMem(
 	}
 	return res
 }
-
-// conditionsInHourFromMem は [hourStart, hourEnd) を昇順で返す。
-func conditionsInHourFromMem(jiaIsuUUID string, hourStart, hourEnd time.Time) []isuConditionGraphRow {
-	conditionStore.RLock()
-	mem := conditionStore.byIsu[jiaIsuUUID]
-	conditionStore.RUnlock()
-	if mem == nil {
-		return nil
-	}
-
-	startUnix := hourStart.Unix()
-	endUnix := hourEnd.Unix()
-
-	mem.RLock()
-	defer mem.RUnlock()
-	items := mem.items
-	lo := sort.Search(len(items), func(i int) bool {
-		return items[i].Timestamp >= startUnix
-	})
-	hi := sort.Search(len(items), func(i int) bool {
-		return items[i].Timestamp >= endUnix
-	})
-	if lo >= hi {
-		return nil
-	}
-	rows := make([]isuConditionGraphRow, 0, hi-lo)
-	for i := lo; i < hi; i++ {
-		rows = append(rows, isuConditionGraphRow{
-			Timestamp: time.Unix(items[i].Timestamp, 0),
-			IsSitting: items[i].IsSitting,
-			Condition: items[i].Condition,
-		})
-	}
-	return rows
-}
