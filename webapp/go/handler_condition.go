@@ -8,9 +8,16 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/gommon/log"
+)
+
+var (
+	conditionMemEnqueued uint64
+	conditionMemDropped  uint64
 )
 
 // ISUのコンディションを取得
@@ -128,6 +135,30 @@ func startConditionWriter() {
 	for i := 0; i < conditionWriterCount; i++ {
 		conditionMemQueues[i] = make(chan conditionWriteRequest, conditionWriteQueueSize)
 		go conditionMemWriter(conditionMemQueues[i])
+	}
+	go reportConditionMemQueueStats()
+}
+
+func reportConditionMemQueueStats() {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	var lastEnqueued, lastDropped uint64
+	for range ticker.C {
+		enqueued := atomic.LoadUint64(&conditionMemEnqueued)
+		dropped := atomic.LoadUint64(&conditionMemDropped)
+		dEnqueued := enqueued - lastEnqueued
+		dDropped := dropped - lastDropped
+		lastEnqueued, lastDropped = enqueued, dropped
+		if dDropped == 0 && dEnqueued == 0 {
+			continue
+		}
+		total := dEnqueued + dDropped
+		pct := 0.0
+		if total > 0 {
+			pct = 100 * float64(dDropped) / float64(total)
+		}
+		log.Warnf("condition mem queue: +enqueued=%d +dropped=%d (%.2f%%) total_dropped=%d",
+			dEnqueued, dDropped, pct, dropped)
 	}
 }
 
@@ -263,11 +294,11 @@ func postIsuCondition(c echo.Context) error {
 	}
 
 	// メモリ用 FIFO キューへ非ブロッキング投入。満杯なら捨てて 202（減点なし）。
-	// mem worker 化のときに default が消えて context 待ちになっていたのを戻す。
 	select {
 	case conditionMemQueue(jiaIsuUUID) <- writeRequest:
+		atomic.AddUint64(&conditionMemEnqueued, 1)
 	default:
-		// backpressure: 加点反映・永続化をスキップ
+		atomic.AddUint64(&conditionMemDropped, 1)
 	}
 	return c.NoContent(http.StatusAccepted)
 }
