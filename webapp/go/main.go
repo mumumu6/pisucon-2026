@@ -50,6 +50,8 @@ const (
 	conditionBatchMaxRequests   = 128
 	conditionBatchWait          = 5 * time.Millisecond
 	conditionWriterCount        = 4
+	// グラフ当日分（まだ終わりきってない24h窓）のキャッシュ寿命
+	graphCacheTodayTTL = 500 * time.Millisecond
 )
 
 var (
@@ -96,8 +98,19 @@ var (
 		values map[string]isuIconCacheEntry
 	}{values: make(map[string]isuIconCacheEntry)}
 
+	// ISU × グラフ開始時刻(Truncate hour) → レスポンスJSON
+	graphCache = struct {
+		sync.RWMutex
+		values map[string]map[int64]graphCacheEntry
+	}{values: make(map[string]map[int64]graphCacheEntry)}
+
 	conditionWriteQueues []chan conditionWriteRequest
 )
+
+type graphCacheEntry struct {
+	body      []byte
+	expiresAt time.Time // zero なら期限なし（過去日）。invalidate まで有効
+}
 
 type isuIconCacheEntry struct {
 	jiaUserID string
@@ -531,6 +544,54 @@ func clearIsuIconCache() {
 	isuIconCache.Unlock()
 }
 
+func clearGraphCache() {
+	graphCache.Lock()
+	graphCache.values = make(map[string]map[int64]graphCacheEntry)
+	graphCache.Unlock()
+}
+
+func invalidateGraphCache(jiaIsuUUID string) {
+	graphCache.Lock()
+	delete(graphCache.values, jiaIsuUUID)
+	graphCache.Unlock()
+}
+
+func getCachedGraph(jiaIsuUUID string, graphDate time.Time) ([]byte, bool) {
+	graphCache.RLock()
+	byDay, ok := graphCache.values[jiaIsuUUID]
+	if !ok {
+		graphCache.RUnlock()
+		return nil, false
+	}
+	entry, ok := byDay[graphDate.Unix()]
+	graphCache.RUnlock()
+	if !ok {
+		return nil, false
+	}
+	if !entry.expiresAt.IsZero() && time.Now().After(entry.expiresAt) {
+		return nil, false
+	}
+	return entry.body, true
+}
+
+func setCachedGraph(jiaIsuUUID string, graphDate time.Time, body []byte) {
+	dayEnd := graphDate.Add(24 * time.Hour)
+	var expiresAt time.Time
+	if dayEnd.After(time.Now()) {
+		// 当日（まだ書き込みが入る窓）は短命
+		expiresAt = time.Now().Add(graphCacheTodayTTL)
+	}
+
+	graphCache.Lock()
+	byDay := graphCache.values[jiaIsuUUID]
+	if byDay == nil {
+		byDay = make(map[int64]graphCacheEntry)
+		graphCache.values[jiaIsuUUID] = byDay
+	}
+	byDay[graphDate.Unix()] = graphCacheEntry{body: body, expiresAt: expiresAt}
+	graphCache.Unlock()
+}
+
 func getCachedIsuIcon(jiaIsuUUID, jiaUserID string) ([]byte, bool) {
 	isuIconCache.RLock()
 	entry, ok := isuIconCache.values[jiaIsuUUID]
@@ -578,6 +639,7 @@ func postInitialize(c echo.Context) error {
 	clearIsuMetadataCache()
 	clearIsuLatestTimestampCache()
 	clearIsuIconCache()
+	clearGraphCache()
 
 	_, err = db.Exec(
 		"INSERT INTO `isu_association_config` (`name`, `url`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `url` = VALUES(`url`)",
@@ -968,6 +1030,10 @@ func getIsuGraph(c echo.Context) error {
 		setCachedIsuOwner(jiaIsuUUID, jiaUserID)
 	}
 
+	if body, ok := getCachedGraph(jiaIsuUUID, date); ok {
+		return c.JSONBlob(http.StatusOK, body)
+	}
+
 	res, err := generateIsuGraphResponse(db, jiaIsuUUID, date)
 	if err != nil {
 		c.Logger().Error(err)
@@ -979,6 +1045,7 @@ func getIsuGraph(c echo.Context) error {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	setCachedGraph(jiaIsuUUID, date, body)
 	return c.JSONBlob(http.StatusOK, body)
 }
 
@@ -1526,6 +1593,10 @@ func writeConditionBatch(batch []conditionWriteRequest) error {
 	)
 	if err != nil {
 		return err
+	}
+	// 当日グラフなどが古くなるので、書いた ISU のグラフキャッシュを捨てる
+	for jiaIsuUUID := range latestByIsu {
+		invalidateGraphCache(jiaIsuUUID)
 	}
 
 	uuids := make([]string, 0, len(latestByIsu))
