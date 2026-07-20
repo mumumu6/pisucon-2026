@@ -33,32 +33,9 @@ mysql_admin_command: mysql
 mysql_service: mariadb
 mysql_slow_query_time: 0
 slow_log: /var/log/mysql/mariadb-slow.log
-# --- MariaDB性能設定 (make mysql-tune で反映、再起動あり) ---
-# isucon-1 目安: メモリ約3.6GB・NVMe・アプリ同居。
-#
-# COMMIT時にredoログを毎回fsyncしない(2)。耐久性より速度優先。
-# OS/電源断時は直近およそ1秒分の更新が失われる可能性がある。
+# COMMITごとのfsyncを避けるISUCON向け設定。OS/電源断時は直近約1秒の更新を失う可能性があります。
 mysql_innodb_flush_log_at_trx_commit: 2
-# バイナリログをCOMMITごとにディスク同期しない。同様に速度優先。
 mysql_sync_binlog: 0
-# InnoDBがデータ/インデックスを載せるメインキャッシュ。
-# ここが大きいとSELECTのディスク読みとINSERT時のページI/Oが減る。
-# アプリ同居のため全メモリは使わず1G程度に抑える(デフォルトは128MB)。
-mysql_innodb_buffer_pool_size: 1G
-# buffer pool の分割数。内部ロック競合を分散する用途。
-# 目安はだいたい1インスタンス≒1GBなので、1Gなら1でよい。
-mysql_innodb_buffer_pool_instances: 1
-# トランザクションのredoを書く前のメモリバッファ。
-# 大きなバッチINSERTで、ログを頻繁にディスクへ押し出す回数を減らす。
-mysql_innodb_log_buffer_size: 64M
-# InnoDBのデータファイルI/OをOSページキャッシュ経由にしない。
-# buffer pool を大きくしたときの二重キャッシュを避ける。
-mysql_innodb_flush_method: O_DIRECT
-# 背景のdirty page書き出しペースの目安(通常時)。
-# デフォルト200はHDD寄り。NVMeなら高めにして書き込み滞留を減らす。
-mysql_innodb_io_capacity: 2000
-# 上記の上限。負荷が高いときにどこまで書き出せるか。
-mysql_innodb_io_capacity_max: 4000
 # BLOBを含む実SQLは出力せず、集計表だけをレポートへ残す。
 pt_query_digest_options:
   - --report-format
