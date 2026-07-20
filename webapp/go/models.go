@@ -35,11 +35,11 @@ const (
 	trendMaxAge0                = 3000 * time.Millisecond
 	trendTTL1                   = 2500 * time.Millisecond
 	trendMaxAge1                = 3000 * time.Millisecond
-	trendTTL2                   = 3800 * time.Millisecond
+	trendTTL2                   = 2500 * time.Millisecond
 	trendMaxAge2                = 4000 * time.Millisecond
-	trendTTL3                   = 5500 * time.Millisecond
+	trendTTL3                   = 2500 * time.Millisecond
 	trendMaxAge3                = 6000 * time.Millisecond
-	trendTTL4                   = 7000 * time.Millisecond
+	trendTTL4                   = 2500 * time.Millisecond
 	trendMaxAge4                = 8000 * time.Millisecond
 	trendPhaseUntil0            = 5 * time.Second
 	trendPhaseUntil1            = 10 * time.Second
