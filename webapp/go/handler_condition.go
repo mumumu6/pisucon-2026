@@ -126,13 +126,20 @@ func calculateConditionLevel(condition string) (string, error) {
 
 func startConditionWriter() {
 	conditionMemShards = make([]*conditionMemShard, conditionWriterCount)
+	conditionDBShards = make([]*conditionMemShard, conditionWriterCount)
 	for i := 0; i < conditionWriterCount; i++ {
-		s := &conditionMemShard{
+		mem := &conditionMemShard{
 			q:    make([]conditionWriteRequest, 0, 64),
 			wake: make(chan struct{}, 1),
 		}
-		conditionMemShards[i] = s
-		go conditionMemWriter(s)
+		dbShard := &conditionMemShard{
+			q:    make([]conditionWriteRequest, 0, 64),
+			wake: make(chan struct{}, 1),
+		}
+		conditionMemShards[i] = mem
+		conditionDBShards[i] = dbShard
+		go conditionMemWriter(mem)
+		go conditionDBWriter(dbShard)
 	}
 }
 
@@ -157,28 +164,44 @@ func (s *conditionMemShard) takeAll() []conditionWriteRequest {
 	return batch
 }
 
-// conditionMemWriter は同一 shard を FIFO でメモリ反映し、続けて DB へ非同期永続化する。
-// HTTP は enqueue 時点で 202 済み。GET はメモリ、追試用に INSERT は裏でリトライする。
+func waitConditionBatch(s *conditionMemShard) {
+	timer := time.NewTimer(conditionBatchWait)
+	select {
+	case <-s.wake:
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+	case <-timer.C:
+	}
+}
+
+// conditionMemWriter は同一 shard を FIFO でメモリ反映する（HTTP 並列でも順序を守る）。
+// DB 永続化は conditionDBWriter が別キューで並行する。
 func conditionMemWriter(s *conditionMemShard) {
 	for range s.wake {
-		// 短時間待って同 shard の到着をまとめてから全部取る
-		timer := time.NewTimer(conditionBatchWait)
-		select {
-		case <-s.wake:
-			if !timer.Stop() {
-				select {
-				case <-timer.C:
-				default:
-				}
-			}
-		case <-timer.C:
-		}
+		waitConditionBatch(s)
 		for {
 			batch := s.takeAll()
 			if len(batch) == 0 {
 				break
 			}
 			applyConditionMemoryBatch(batch)
+		}
+	}
+}
+
+// conditionDBWriter はメモリとは独立に INSERT / latest 更新する。
+func conditionDBWriter(s *conditionMemShard) {
+	for range s.wake {
+		waitConditionBatch(s)
+		for {
+			batch := s.takeAll()
+			if len(batch) == 0 {
+				break
+			}
 			persistConditionBatchWithRetry(batch)
 		}
 	}
@@ -270,7 +293,9 @@ func persistConditionBatch(batch []conditionWriteRequest) error {
 }
 
 func enqueueConditionMemory(jiaIsuUUID string, req conditionWriteRequest) {
-	conditionMemShards[conditionShardIndex(jiaIsuUUID)].enqueue(req)
+	idx := conditionShardIndex(jiaIsuUUID)
+	conditionMemShards[idx].enqueue(req)
+	conditionDBShards[idx].enqueue(req)
 }
 
 func conditionShardIndex(jiaIsuUUID string) int {
@@ -370,7 +395,7 @@ func postIsuCondition(c echo.Context) error {
 		conditions: req,
 	}
 
-	// 即 202。メモリ反映と DB INSERT は shard writer が非同期で行う。
+	// 即 202。メモリ反映と DB INSERT は別キューで並行する。
 	enqueueConditionMemory(jiaIsuUUID, writeRequest)
 	return c.NoContent(http.StatusAccepted)
 }

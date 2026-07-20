@@ -143,6 +143,7 @@ var (
 
 	// 同一 ISU は同じ shard。enqueue は非ブロッキング、反映は writer が FIFO で行う。
 	conditionMemShards []*conditionMemShard
+	conditionDBShards  []*conditionMemShard
 )
 
 // conditionMemShard は POST を即受けて、裏でメモリ反映する。
