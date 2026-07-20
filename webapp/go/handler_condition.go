@@ -6,13 +6,11 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/labstack/gommon/log"
 )
 
 // ISUのコンディションを取得
@@ -127,12 +125,9 @@ func calculateConditionLevel(condition string) (string, error) {
 
 func startConditionWriter() {
 	conditionMemQueues = make([]chan conditionWriteRequest, conditionWriterCount)
-	conditionDBQueues = make([]chan conditionWriteRequest, conditionWriterCount)
 	for i := 0; i < conditionWriterCount; i++ {
 		conditionMemQueues[i] = make(chan conditionWriteRequest, conditionWriteQueueSize)
-		conditionDBQueues[i] = make(chan conditionWriteRequest, conditionWriteQueueSize)
-		go conditionMemWriter(conditionMemQueues[i], conditionDBQueues[i])
-		go conditionDBWriter(conditionDBQueues[i])
+		go conditionMemWriter(conditionMemQueues[i])
 	}
 }
 
@@ -158,27 +153,11 @@ collect:
 }
 
 // conditionMemWriter は同一 shard を FIFO でメモリ反映する（HTTP 並列でも順序を守る）。
-// DB は別 goroutine に渡すので、INSERT 待ちで加点反映が止まらない。
-func conditionMemWriter(memQueue <-chan conditionWriteRequest, dbQueue chan<- conditionWriteRequest) {
+// ベンチ中の GET はメモリ参照のみなので DB 永続化はしない（IO/CPU を GET に回す）。
+func conditionMemWriter(memQueue <-chan conditionWriteRequest) {
 	for first := range memQueue {
 		batch := collectConditionBatch(memQueue, first)
 		applyConditionMemoryBatch(batch)
-		for _, request := range batch {
-			select {
-			case dbQueue <- request:
-			default:
-				// DB 永続化キューが満杯なら捨てる（GET はメモリ参照なので加点に不要）
-			}
-		}
-	}
-}
-
-func conditionDBWriter(dbQueue <-chan conditionWriteRequest) {
-	for first := range dbQueue {
-		batch := collectConditionBatch(dbQueue, first)
-		if err := writeConditionDBBatch(batch); err != nil {
-			log.Errorf("condition db write batch error: %v", err)
-		}
 	}
 }
 
@@ -229,109 +208,6 @@ func applyConditionMemoryBatch(batch []conditionWriteRequest) {
 			latest.condition.Message,
 		)
 	}
-}
-
-func writeConditionDBBatch(batch []conditionWriteRequest) error {
-	type latestCondition struct {
-		jiaIsuUUID string
-		condition  PostIsuConditionRequest
-	}
-
-	rowCount := 0
-	for _, request := range batch {
-		rowCount += len(request.conditions)
-	}
-	placeholders := make([]string, 0, rowCount)
-	args := make([]interface{}, 0, rowCount*5)
-	latestByIsu := make(map[string]latestCondition)
-	for _, request := range batch {
-		for _, condition := range request.conditions {
-			placeholders = append(placeholders, "(?, ?, ?, ?, ?)")
-			args = append(args,
-				request.jiaIsuUUID,
-				time.Unix(condition.Timestamp, 0),
-				condition.IsSitting,
-				condition.Condition,
-				condition.Message,
-			)
-			latest, ok := latestByIsu[request.jiaIsuUUID]
-			if !ok || condition.Timestamp >= latest.condition.Timestamp {
-				latestByIsu[request.jiaIsuUUID] = latestCondition{request.jiaIsuUUID, condition}
-			}
-		}
-	}
-
-	_, err := db.Exec(
-		"INSERT IGNORE INTO `isu_condition`"+
-			" (`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`) VALUES "+
-			strings.Join(placeholders, ", "),
-		args...,
-	)
-	if err != nil {
-		return err
-	}
-
-	uuids := make([]string, 0, len(latestByIsu))
-	for jiaIsuUUID := range latestByIsu {
-		uuids = append(uuids, jiaIsuUUID)
-	}
-	sort.Strings(uuids)
-	updatedLatest := make([]latestCondition, 0, len(uuids))
-	for _, jiaIsuUUID := range uuids {
-		updatedLatest = append(updatedLatest, latestByIsu[jiaIsuUUID])
-	}
-	if len(updatedLatest) == 0 {
-		return nil
-	}
-
-	var updateQuery strings.Builder
-	updateArgs := make([]interface{}, 0, len(updatedLatest)*11)
-	appendCase := func(column string, value func(latestCondition) interface{}) {
-		updateQuery.WriteString(" `")
-		updateQuery.WriteString(column)
-		updateQuery.WriteString("` = CASE `jia_isu_uuid`")
-		for _, latest := range updatedLatest {
-			updateQuery.WriteString(" WHEN ? THEN ?")
-			updateArgs = append(updateArgs, latest.jiaIsuUUID, value(latest))
-		}
-		updateQuery.WriteString(" ELSE `")
-		updateQuery.WriteString(column)
-		updateQuery.WriteString("` END")
-	}
-
-	updateQuery.WriteString("UPDATE `isu` SET")
-	appendCase("latest_timestamp", func(latest latestCondition) interface{} {
-		return time.Unix(latest.condition.Timestamp, 0)
-	})
-	updateQuery.WriteString(",")
-	appendCase("latest_is_sitting", func(latest latestCondition) interface{} {
-		return latest.condition.IsSitting
-	})
-	updateQuery.WriteString(",")
-	appendCase("latest_condition", func(latest latestCondition) interface{} {
-		return latest.condition.Condition
-	})
-	updateQuery.WriteString(",")
-	appendCase("latest_message", func(latest latestCondition) interface{} {
-		return latest.condition.Message
-	})
-
-	updateQuery.WriteString(" WHERE `jia_isu_uuid` IN (")
-	updateQuery.WriteString(strings.TrimRight(strings.Repeat("?,", len(updatedLatest)), ","))
-	updateQuery.WriteString(") AND (`latest_timestamp` IS NULL OR `latest_timestamp` <= CASE `jia_isu_uuid`")
-	for _, latest := range updatedLatest {
-		updateArgs = append(updateArgs, latest.jiaIsuUUID)
-	}
-	for _, latest := range updatedLatest {
-		updateQuery.WriteString(" WHEN ? THEN ?")
-		updateArgs = append(updateArgs, latest.jiaIsuUUID, time.Unix(latest.condition.Timestamp, 0))
-	}
-	updateQuery.WriteString(" END)")
-
-	if _, err = db.Exec(updateQuery.String(), updateArgs...); err != nil {
-		return err
-	}
-	return nil
 }
 
 // POST /api/condition/:jia_isu_uuid

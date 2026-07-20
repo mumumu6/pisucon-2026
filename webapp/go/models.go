@@ -93,7 +93,6 @@ var (
 
 	// 同一 ISU は同じ shard。mem は FIFO で加点反映、db は後続永続化。
 	conditionMemQueues []chan conditionWriteRequest
-	conditionDBQueues  []chan conditionWriteRequest
 )
 
 type graphCacheEntry struct {
