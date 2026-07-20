@@ -179,10 +179,9 @@ func waitConditionBatch(s *conditionMemShard) {
 }
 
 // conditionMemWriter は同一 shard を FIFO でメモリ反映する（HTTP 並列でも順序を守る）。
-// DB 永続化は conditionDBWriter が別キューで並行する。
+// GET 向けなので待ちなしで即反映する。DB 永続化は conditionDBWriter が別キューで行う。
 func conditionMemWriter(s *conditionMemShard) {
 	for range s.wake {
-		waitConditionBatch(s)
 		for {
 			batch := s.takeAll()
 			if len(batch) == 0 {
@@ -194,6 +193,7 @@ func conditionMemWriter(s *conditionMemShard) {
 }
 
 // conditionDBWriter はメモリとは独立に INSERT / latest 更新する。
+// バッチ待ちでまとめて書いて DB 負荷を抑える。
 func conditionDBWriter(s *conditionMemShard) {
 	for range s.wake {
 		waitConditionBatch(s)
