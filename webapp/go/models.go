@@ -28,13 +28,13 @@ const (
 	scoreConditionLevelInfo     = 3
 	scoreConditionLevelWarning  = 2
 	scoreConditionLevelCritical = 1
-	// いったん固定 1800/2000 で試す（動的は値を揃えて実質オフ）
-	trendTTLEarly               = 1800 * time.Millisecond
-	trendMaxAgeEarly            = 2000 * time.Millisecond
-	trendTTLMid                 = 1800 * time.Millisecond
-	trendMaxAgeMid              = 2000 * time.Millisecond
-	trendTTLLate                = 1800 * time.Millisecond
-	trendMaxAgeLate             = 2000 * time.Millisecond
+	// 2500/3000 で試す（上げすぎると「増えませんでした」が増えて母数不足になる）
+	trendTTLEarly               = 2500 * time.Millisecond
+	trendMaxAgeEarly            = 3000 * time.Millisecond
+	trendTTLMid                 = 2500 * time.Millisecond
+	trendMaxAgeMid              = 3000 * time.Millisecond
+	trendTTLLate                = 2500 * time.Millisecond
+	trendMaxAgeLate             = 3000 * time.Millisecond
 	trendPhaseEarlyUntil        = 25 * time.Second
 	trendPhaseMidUntil          = 45 * time.Second
 	conditionBatchMaxRequests   = 512
