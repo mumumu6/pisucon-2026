@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/labstack/gommon/log"
 )
 
 // ISUのコンディションを取得
@@ -157,8 +156,8 @@ func (s *conditionMemShard) takeAll() []conditionWriteRequest {
 	return batch
 }
 
-// conditionMemWriter は同一 shard を FIFO でメモリ反映し、続けて DB へ非同期永続化する。
-// HTTP は enqueue 時点で 202 済み。GET はメモリ、追試用に INSERT は裏でリトライする。
+// conditionMemWriter は同一 shard を FIFO でメモリ反映する（HTTP 並列でも順序を守る）。
+// ベンチ中の GET はメモリ参照のみなので DB 永続化はしない（IO/CPU を GET に回す）。
 func conditionMemWriter(s *conditionMemShard) {
 	for range s.wake {
 		// 短時間待って同 shard の到着をまとめてから全部取る
@@ -179,94 +178,8 @@ func conditionMemWriter(s *conditionMemShard) {
 				break
 			}
 			applyConditionMemoryBatch(batch)
-			persistConditionBatchWithRetry(batch)
 		}
 	}
-}
-
-func persistConditionBatchWithRetry(batch []conditionWriteRequest) {
-	for {
-		if err := persistConditionBatch(batch); err != nil {
-			log.Errorf("persist condition batch: %v", err)
-			time.Sleep(conditionPersistRetryWait)
-			continue
-		}
-		return
-	}
-}
-
-func persistConditionBatch(batch []conditionWriteRequest) error {
-	type row struct {
-		jiaIsuUUID string
-		timestamp  time.Time
-		isSitting  bool
-		condition  string
-		message    string
-	}
-	type latestCondition struct {
-		jiaIsuUUID string
-		condition  PostIsuConditionRequest
-	}
-
-	rows := make([]row, 0, 64)
-	latestByIsu := make(map[string]latestCondition)
-	for _, request := range batch {
-		for _, condition := range request.conditions {
-			rows = append(rows, row{
-				jiaIsuUUID: request.jiaIsuUUID,
-				timestamp:  time.Unix(condition.Timestamp, 0),
-				isSitting:  condition.IsSitting,
-				condition:  condition.Condition,
-				message:    condition.Message,
-			})
-			latest, ok := latestByIsu[request.jiaIsuUUID]
-			if !ok || condition.Timestamp >= latest.condition.Timestamp {
-				latestByIsu[request.jiaIsuUUID] = latestCondition{request.jiaIsuUUID, condition}
-			}
-		}
-	}
-	if len(rows) == 0 {
-		return nil
-	}
-
-	for i := 0; i < len(rows); i += conditionInsertChunk {
-		end := i + conditionInsertChunk
-		if end > len(rows) {
-			end = len(rows)
-		}
-		chunk := rows[i:end]
-		var b strings.Builder
-		b.WriteString("INSERT IGNORE INTO `isu_condition` (`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`) VALUES ")
-		args := make([]interface{}, 0, len(chunk)*5)
-		for j, r := range chunk {
-			if j > 0 {
-				b.WriteByte(',')
-			}
-			b.WriteString("(?,?,?,?,?)")
-			args = append(args, r.jiaIsuUUID, r.timestamp, r.isSitting, r.condition, r.message)
-		}
-		if _, err := db.Exec(b.String(), args...); err != nil {
-			return fmt.Errorf("insert isu_condition: %w", err)
-		}
-	}
-
-	for jiaIsuUUID, latest := range latestByIsu {
-		ts := time.Unix(latest.condition.Timestamp, 0)
-		_, err := db.Exec(
-			"UPDATE `isu` SET `latest_timestamp` = ?, `latest_is_sitting` = ?, `latest_condition` = ?, `latest_message` = ?"+
-				" WHERE `jia_isu_uuid` = ? AND (`latest_timestamp` IS NULL OR `latest_timestamp` < ?)",
-			ts,
-			latest.condition.IsSitting,
-			latest.condition.Condition,
-			latest.condition.Message,
-			jiaIsuUUID,
-			ts,
-		)
-		if err != nil {
-			return fmt.Errorf("update isu latest: %w", err)
-		}
-	}
-	return nil
 }
 
 func enqueueConditionMemory(jiaIsuUUID string, req conditionWriteRequest) {
@@ -370,7 +283,7 @@ func postIsuCondition(c echo.Context) error {
 		conditions: req,
 	}
 
-	// 即 202。メモリ反映と DB INSERT は shard writer が非同期で行う。
+	// 即 202。メモリ反映は shard writer が非同期で行う（捨てない）。
 	enqueueConditionMemory(jiaIsuUUID, writeRequest)
 	return c.NoContent(http.StatusAccepted)
 }

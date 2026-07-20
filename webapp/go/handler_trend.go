@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -136,19 +135,14 @@ func refreshTrendCache(done chan struct{}) ([]byte, error) {
 
 func buildTrendJSON() ([]byte, error) {
 	type trendRow struct {
-		IsuID           int            `db:"isu_id"`
-		JIAIsuUUID      string         `db:"jia_isu_uuid"`
-		Character       string         `db:"character"`
-		LatestTimestamp sql.NullTime   `db:"latest_timestamp"`
-		LatestIsSitting sql.NullBool   `db:"latest_is_sitting"`
-		LatestCondition sql.NullString `db:"latest_condition"`
-		LatestMessage   sql.NullString `db:"latest_message"`
+		IsuID      int    `db:"isu_id"`
+		JIAIsuUUID string `db:"jia_isu_uuid"`
+		Character  string `db:"character"`
 	}
 
 	rows := []trendRow{}
 	err := db.Select(&rows, `
-		SELECT isu.id AS isu_id, isu.jia_isu_uuid, isu.character,
-			isu.latest_timestamp, isu.latest_is_sitting, isu.latest_condition, isu.latest_message
+		SELECT isu.id AS isu_id, isu.jia_isu_uuid, isu.character
 		FROM isu`)
 	if err != nil {
 		return nil, fmt.Errorf("select trend rows: %w", err)
@@ -164,22 +158,7 @@ func buildTrendJSON() ([]byte, error) {
 	for _, row := range rows {
 		latest, ok := getCachedIsuLatestCondition(row.JIAIsuUUID)
 		if !ok {
-			if !row.LatestTimestamp.Valid || !row.LatestCondition.Valid {
-				continue
-			}
-			setCachedIsuLatestCondition(
-				row.JIAIsuUUID,
-				row.LatestTimestamp.Time.Unix(),
-				row.LatestIsSitting.Bool,
-				row.LatestCondition.String,
-				row.LatestMessage.String,
-			)
-			latest = isuLatestConditionEntry{
-				Timestamp: row.LatestTimestamp.Time.Unix(),
-				IsSitting: row.LatestIsSitting.Bool,
-				Condition: row.LatestCondition.String,
-				Message:   row.LatestMessage.String,
-			}
+			continue
 		}
 		items = append(items, trendItem{
 			isuID:     row.IsuID,
