@@ -98,10 +98,39 @@ func postIsu(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	useDefaultImage := false
-
 	jiaIsuUUID := c.FormValue("jia_isu_uuid")
 	isuName := c.FormValue("isu_name")
+
+	// 既登録なら activate を送らない（JIA は2回目も成功するが target_base_url は1回目のまま）
+	if exists, cached := getCachedIsuExistence(jiaIsuUUID); cached {
+		if exists {
+			return c.String(http.StatusConflict, "duplicated: isu")
+		}
+	} else {
+		var existsInt int
+		err = db.Get(&existsInt, "SELECT EXISTS(SELECT 1 FROM `isu` WHERE `jia_isu_uuid` = ?)", jiaIsuUUID)
+		if err != nil {
+			c.Logger().Errorf("db error: %v", err)
+			return c.NoContent(http.StatusInternalServerError)
+		}
+		exists := existsInt == 1
+		setCachedIsuExistence(jiaIsuUUID, exists)
+		if exists {
+			return c.String(http.StatusConflict, "duplicated: isu")
+		}
+	}
+
+	if _, loaded := isuActivateInFlight.LoadOrStore(jiaIsuUUID, struct{}{}); loaded {
+		return c.String(http.StatusConflict, "duplicated: isu")
+	}
+	activateOK := false
+	defer func() {
+		if !activateOK {
+			isuActivateInFlight.Delete(jiaIsuUUID)
+		}
+	}()
+
+	useDefaultImage := false
 	fh, err := c.FormFile("image")
 	if err != nil {
 		if !errors.Is(err, http.ErrMissingFile) {
@@ -201,6 +230,8 @@ func postIsu(c echo.Context) error {
 	setCachedIsuOwner(jiaIsuUUID, jiaUserID)
 	setCachedIsuMetadata(jiaIsuUUID, jiaUserID, isuName)
 	setCachedIsuIcon(jiaIsuUUID, jiaUserID, image)
+	activateOK = true
+	isuActivateInFlight.Delete(jiaIsuUUID)
 
 	return c.JSON(http.StatusCreated, isu)
 }

@@ -79,6 +79,9 @@ var (
 		values map[string]bool
 	}{values: make(map[string]bool)}
 
+	// 同一 UUID の activate 同時実行を防ぐ（成功後は existence キャッシュで弾く）
+	isuActivateInFlight sync.Map
+
 	isuOwnerCache = struct {
 		sync.RWMutex
 		values map[string]string
