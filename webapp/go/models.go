@@ -31,8 +31,8 @@ const (
 	// trend TTL 配分（initialize 起点）
 	// 実測ベスト 3.58M。短序盤+長後半(3.43M)は前半ほぼ同じで後半だけ負けた。
 	// 0-5s / 5-10s / 10-25s / 25-45s / 45s-
-	trendTTL0                   = 500 * time.Millisecond
-	trendMaxAge0                = 800 * time.Millisecond
+	trendTTL0                   = 100 * time.Millisecond
+	trendMaxAge0                = 500 * time.Millisecond
 	trendTTL1                   = 2200 * time.Millisecond
 	trendMaxAge1                = 2500 * time.Millisecond
 	trendTTL2                   = 3000 * time.Millisecond
