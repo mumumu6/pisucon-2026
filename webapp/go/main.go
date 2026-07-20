@@ -50,8 +50,8 @@ func main() {
 	// Authentication is cookie based, and several endpoints can issue database
 	// queries concurrently.  The default of ten connections made otherwise
 	// independent requests wait for a free connection under benchmark load.
-	db.SetMaxOpenConns(50)
-	db.SetMaxIdleConns(50)
+	db.SetMaxOpenConns(200)
+	db.SetMaxIdleConns(200)
 	defer db.Close()
 	startConditionWriter()
 
