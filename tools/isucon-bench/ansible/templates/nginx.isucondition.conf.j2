@@ -30,11 +30,20 @@ server {
     client_body_buffer_size {{ nginx_client_body_buffer_size }};
     client_max_body_size {{ nginx_client_max_body_size }};
 
+    # Accept-Encoding: gzip のクライアント向け。API(proxy)は gzip_proxied が必要。
     gzip on;
     gzip_comp_level 1;
     gzip_min_length 1024;
     gzip_proxied any;
-    gzip_types application/json text/css text/javascript application/javascript application/xml text/plain;
+    gzip_types
+        application/json
+        text/css
+        text/javascript
+        application/javascript
+        application/x-javascript
+        application/xml
+        text/plain
+        image/svg+xml;
     gzip_vary on;
 
     open_file_cache max=10000 inactive=60s;
