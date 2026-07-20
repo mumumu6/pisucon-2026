@@ -47,6 +47,8 @@ const (
 	trendPhaseUntil3            = 35 * time.Second
 	conditionBatchWait          = 1 * time.Millisecond
 	conditionWriterCount        = 128
+	conditionInsertChunk        = 100
+	conditionPersistRetryWait   = 100 * time.Millisecond
 	graphCacheWarmWorkers       = 8
 )
 
