@@ -111,7 +111,7 @@ func clearGraphCache() {
 	graphCache.Unlock()
 }
 
-// getCachedGraphEntry は ISU×日 のグラフキャッシュを取る。
+// getCachedGraphEntry は ISU×日 のグラフキャッシュを取る（呼び出し側で安全に触れるよう複製を返す）。
 func getCachedGraphEntry(jiaIsuUUID string, graphDate time.Time) (graphCacheEntry, bool) {
 	dayUnix := graphCacheDay(graphDate).Unix()
 	graphCache.RLock()
@@ -125,13 +125,18 @@ func getCachedGraphEntry(jiaIsuUUID string, graphDate time.Time) (graphCacheEntr
 	if !ok || len(entry.response) != 24 {
 		return graphCacheEntry{}, false
 	}
-	return entry, true
+	return graphCacheEntry{
+		response:      cloneGraphDay(entry.response),
+		sealedThrough: entry.sealedThrough,
+	}, true
 }
 
 // setCachedGraph は日毎グラフを保存する。
 // sealedThrough 未満の時間帯は確定済み（それ以降はまだ開いている / 未作成）。
+// 呼び出し元が同じスライスを後から更新してもキャッシュが壊れないよう、複製して保存する。
 func setCachedGraph(jiaIsuUUID string, graphDate time.Time, response []GraphResponse, sealedThrough time.Time) {
 	dayUnix := graphCacheDay(graphDate).Unix()
+	cloned := cloneGraphDay(response)
 	graphCache.Lock()
 	byDay := graphCache.values[jiaIsuUUID]
 	if byDay == nil {
@@ -139,10 +144,31 @@ func setCachedGraph(jiaIsuUUID string, graphDate time.Time, response []GraphResp
 		graphCache.values[jiaIsuUUID] = byDay
 	}
 	byDay[dayUnix] = graphCacheEntry{
-		response:      response,
+		response:      cloned,
 		sealedThrough: sealedThrough.Unix(),
 	}
 	graphCache.Unlock()
+}
+
+// cloneGraphDay はグラフ1日分をディープコピーする。
+// ConditionTimestamps / Data を共有したままだと、キャッシュ更新中に
+// start_at と timestamps が食い違ってベンチに怒られる。
+func cloneGraphDay(src []GraphResponse) []GraphResponse {
+	if src == nil {
+		return nil
+	}
+	dst := make([]GraphResponse, len(src))
+	for i := range src {
+		dst[i] = src[i]
+		if src[i].ConditionTimestamps != nil {
+			dst[i].ConditionTimestamps = append([]int64(nil), src[i].ConditionTimestamps...)
+		}
+		if src[i].Data != nil {
+			data := *src[i].Data
+			dst[i].Data = &data
+		}
+	}
+	return dst
 }
 
 func getCachedIsuIcon(jiaIsuUUID, jiaUserID string) ([]byte, bool) {

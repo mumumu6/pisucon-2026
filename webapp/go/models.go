@@ -87,6 +87,9 @@ var (
 		values map[string]map[int64]graphCacheEntry
 	}{values: make(map[string]map[int64]graphCacheEntry)}
 
+	// ISU 単位でグラフの read-modify-write を直列化する（seal と GET の競合防止）
+	graphBuildMu sync.Map // map[string]*sync.Mutex
+
 	conditionWriteQueues []chan conditionWriteRequest
 )
 

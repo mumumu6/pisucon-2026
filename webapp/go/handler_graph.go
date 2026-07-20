@@ -90,11 +90,22 @@ func isuVirtualNow(jiaIsuUUID string) (time.Time, bool) {
 	return time.Unix(ts, 0).In(graphCacheLocation), true
 }
 
+// lockGraphBuild は同一 ISU のグラフ組み立てを直列化する。
+func lockGraphBuild(jiaIsuUUID string) func() {
+	v, _ := graphBuildMu.LoadOrStore(jiaIsuUUID, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+
 // getIsuGraphResponse は 1 日分のグラフを組み立てる。
 //   - 仮想現在より前の時間帯: グラフキャッシュ（未確定なら大本メモリから確定）
 //   - 仮想現在の時間帯: 大本メモリから都度集計
 //   - 仮想現在より後: 空
 func getIsuGraphResponse(jiaIsuUUID string, date time.Time) ([]GraphResponse, error) {
+	unlock := lockGraphBuild(jiaIsuUUID)
+	defer unlock()
+
 	dayEnd := date.Add(24 * time.Hour)
 	virtualNow, ok := isuVirtualNow(jiaIsuUUID)
 	if !ok {
@@ -126,8 +137,7 @@ func getIsuGraphResponse(jiaIsuUUID string, date time.Time) ([]GraphResponse, er
 	var res []GraphResponse
 	sealedThrough := date
 	if cached {
-		res = make([]GraphResponse, 24)
-		copy(res, entry.response)
+		res = entry.response
 		sealedThrough = time.Unix(entry.sealedThrough, 0).In(graphCacheLocation)
 		if sealedThrough.Before(date) {
 			sealedThrough = date
@@ -148,7 +158,7 @@ func getIsuGraphResponse(jiaIsuUUID string, date time.Time) ([]GraphResponse, er
 		setCachedGraph(jiaIsuUUID, date, res, sealedThrough)
 	}
 
-	// 開いている時間帯は大本メモリから集計
+	// 開いている時間帯は大本メモリから集計（キャッシュへは書かない。setCachedGraph は複製保存）
 	if !openHour.Before(date) && openHour.Before(dayEnd) {
 		idx := int(openHour.Sub(date) / time.Hour)
 		res[idx] = generateIsuGraphHour(jiaIsuUUID, openHour)
@@ -206,6 +216,9 @@ func generateIsuGraphDayFromMem(jiaIsuUUID string, graphDate time.Time) []GraphR
 
 // sealGraphHoursInRange は [fromHour, toHour) をグラフキャッシュに確定する。
 func sealGraphHoursInRange(jiaIsuUUID string, fromHour, toHour time.Time) {
+	unlock := lockGraphBuild(jiaIsuUUID)
+	defer unlock()
+
 	for hourStart := fromHour; hourStart.Before(toHour); hourStart = hourStart.Add(time.Hour) {
 		day := graphCacheDay(hourStart)
 		dayEnd := day.Add(24 * time.Hour)
@@ -213,8 +226,7 @@ func sealGraphHoursInRange(jiaIsuUUID string, fromHour, toHour time.Time) {
 		var res []GraphResponse
 		sealedThrough := day
 		if ok {
-			res = make([]GraphResponse, 24)
-			copy(res, entry.response)
+			res = entry.response
 			sealedThrough = time.Unix(entry.sealedThrough, 0).In(graphCacheLocation)
 			if sealedThrough.Before(day) {
 				sealedThrough = day
