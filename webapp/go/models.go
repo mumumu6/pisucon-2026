@@ -28,13 +28,13 @@ const (
 	scoreConditionLevelInfo     = 3
 	scoreConditionLevelWarning  = 2
 	scoreConditionLevelCritical = 1
-	// 2500/3000 で試す（上げすぎると「増えませんでした」が増えて母数不足になる）
-	trendTTLEarly               = 2500 * time.Millisecond
-	trendMaxAgeEarly            = 3000 * time.Millisecond
-	trendTTLMid                 = 2500 * time.Millisecond
-	trendMaxAgeMid              = 3000 * time.Millisecond
-	trendTTLLate                = 2500 * time.Millisecond
-	trendMaxAgeLate             = 3000 * time.Millisecond
+	// 3000/3500（山の付近の感触）
+	trendTTLEarly               = 3000 * time.Millisecond
+	trendMaxAgeEarly            = 3500 * time.Millisecond
+	trendTTLMid                 = 3000 * time.Millisecond
+	trendMaxAgeMid              = 3500 * time.Millisecond
+	trendTTLLate                = 3000 * time.Millisecond
+	trendMaxAgeLate             = 3500 * time.Millisecond
 	trendPhaseEarlyUntil        = 25 * time.Second
 	trendPhaseMidUntil          = 45 * time.Second
 	conditionBatchMaxRequests   = 512
