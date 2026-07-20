@@ -7,12 +7,11 @@ ALTER TABLE `isu`
 
 UPDATE `isu` AS i
 JOIN `isu_condition` AS ic
-  ON ic.id = (
-    SELECT id
+  ON ic.jia_isu_uuid = i.jia_isu_uuid
+  AND ic.timestamp = (
+    SELECT MAX(`timestamp`)
     FROM `isu_condition`
     WHERE jia_isu_uuid = i.jia_isu_uuid
-    ORDER BY `timestamp` DESC, id DESC
-    LIMIT 1
   )
 SET
   i.latest_timestamp = ic.timestamp,
