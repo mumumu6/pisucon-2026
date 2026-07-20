@@ -53,6 +53,11 @@ func getIsuGraph(c echo.Context) error {
 		setCachedIsuOwner(jiaIsuUUID, jiaUserID)
 	}
 
+	// 全日 seal 済みなら組み立て・Marshal を省略（GraphGood の本命）
+	if body, ok := getCachedGraphJSON(jiaIsuUUID, date); ok {
+		return c.JSONBlob(http.StatusOK, body)
+	}
+
 	res, err := getIsuGraphResponse(jiaIsuUUID, date)
 	if err != nil {
 		c.Logger().Error(err)

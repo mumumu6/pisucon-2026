@@ -136,6 +136,8 @@ type graphCacheEntry struct {
 	response []GraphResponse
 	// sealedThrough: この Unix 時刻未満の時間帯は確定済み。開いている時間帯は含めない。
 	sealedThrough int64
+	// jsonBody: 全日 seal 済みのときだけ持つ。GET は組み立て・Marshal を省略できる。
+	jsonBody []byte
 }
 
 type isuLatestConditionEntry struct {

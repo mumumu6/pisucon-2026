@@ -132,7 +132,26 @@ func clearGraphCache() {
 	graphCache.Unlock()
 }
 
-// getCachedGraphEntry は ISU×日 のグラフキャッシュを取る（呼び出し側で安全に触れるよう複製を返す）。
+// getCachedGraphJSON は全日確定済みグラフの JSON を返す（不変なので共有してよい）。
+func getCachedGraphJSON(jiaIsuUUID string, graphDate time.Time) ([]byte, bool) {
+	dayUnix := graphCacheDay(graphDate).Unix()
+	graphCache.RLock()
+	byDay, ok := graphCache.values[jiaIsuUUID]
+	if !ok {
+		graphCache.RUnlock()
+		return nil, false
+	}
+	entry, ok := byDay[dayUnix]
+	body := entry.jsonBody
+	graphCache.RUnlock()
+	if !ok || len(body) == 0 {
+		return nil, false
+	}
+	return body, true
+}
+
+// getCachedGraphEntry は ISU×日 のグラフキャッシュを取る。
+// 返す response は浅いコピー（スロット差し替え用）。Data/Timestamps は seal 済み不変前提で共有する。
 func getCachedGraphEntry(jiaIsuUUID string, graphDate time.Time) (graphCacheEntry, bool) {
 	dayUnix := graphCacheDay(graphDate).Unix()
 	graphCache.RLock()
@@ -147,8 +166,9 @@ func getCachedGraphEntry(jiaIsuUUID string, graphDate time.Time) (graphCacheEntr
 		return graphCacheEntry{}, false
 	}
 	return graphCacheEntry{
-		response:      cloneGraphDay(entry.response),
+		response:      cloneGraphDayShallow(entry.response),
 		sealedThrough: entry.sealedThrough,
+		jsonBody:      entry.jsonBody,
 	}, true
 }
 
@@ -157,7 +177,14 @@ func getCachedGraphEntry(jiaIsuUUID string, graphDate time.Time) (graphCacheEntr
 // 呼び出し元が同じスライスを後から更新してもキャッシュが壊れないよう、複製して保存する。
 func setCachedGraph(jiaIsuUUID string, graphDate time.Time, response []GraphResponse, sealedThrough time.Time) {
 	dayUnix := graphCacheDay(graphDate).Unix()
+	dayEndUnix := graphDate.Add(24 * time.Hour).Unix()
 	cloned := cloneGraphDay(response)
+	var jsonBody []byte
+	if sealedThrough.Unix() >= dayEndUnix {
+		if body, err := jsonFast.Marshal(cloned); err == nil {
+			jsonBody = body
+		}
+	}
 	graphCache.Lock()
 	byDay := graphCache.values[jiaIsuUUID]
 	if byDay == nil {
@@ -167,8 +194,20 @@ func setCachedGraph(jiaIsuUUID string, graphDate time.Time, response []GraphResp
 	byDay[dayUnix] = graphCacheEntry{
 		response:      cloned,
 		sealedThrough: sealedThrough.Unix(),
+		jsonBody:      jsonBody,
 	}
 	graphCache.Unlock()
+}
+
+// cloneGraphDayShallow は 24 スロットのヘッダだけコピーする。
+// スロット全体の差し替えだけする前提で、Data/Timestamps ポインタは共有する。
+func cloneGraphDayShallow(src []GraphResponse) []GraphResponse {
+	if src == nil {
+		return nil
+	}
+	dst := make([]GraphResponse, len(src))
+	copy(dst, src)
+	return dst
 }
 
 // cloneGraphDay はグラフ1日分をディープコピーする。
