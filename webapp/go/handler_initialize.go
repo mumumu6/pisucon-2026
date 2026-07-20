@@ -41,7 +41,7 @@ func postInitialize(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	// 種データのグラフを全部載せる。以降は書いた日以外 invalidate しない。
+	// 種データのグラフを載せる。以降、閉じた時間帯は GET 時に確定、開いている時間帯は都度読む。
 	if err := warmGraphCache(); err != nil {
 		c.Logger().Errorf("warm graph cache error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)

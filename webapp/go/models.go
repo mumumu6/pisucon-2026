@@ -81,7 +81,7 @@ var (
 		values map[string]isuIconCacheEntry
 	}{values: make(map[string]isuIconCacheEntry)}
 
-	// ISU × グラフ開始時刻(Truncate hour) → レスポンスJSON
+	// ISU × グラフ日(JST 0時 Unix) → レスポンス。更新は該当時間帯だけ差し替え。
 	graphCache = struct {
 		sync.RWMutex
 		values map[string]map[int64]graphCacheEntry
@@ -91,7 +91,9 @@ var (
 )
 
 type graphCacheEntry struct {
-	body []byte
+	response []GraphResponse
+	// sealedThrough 未満の時間帯は確定済み（Unix）。開いている時間帯は含めない。
+	sealedThrough int64
 }
 
 type isuIconCacheEntry struct {

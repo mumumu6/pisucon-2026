@@ -8,6 +8,12 @@ func graphCacheDay(ts time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, graphCacheLocation)
 }
 
+// グラフの時間帯境界（JST）。その時刻までは確定、この時間帯だけ更新対象。
+func graphCacheHour(ts time.Time) time.Time {
+	t := ts.In(graphCacheLocation)
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), 0, 0, 0, graphCacheLocation)
+}
+
 func clearIsuExistenceCache() {
 	isuExistenceCache.Lock()
 	defer isuExistenceCache.Unlock()
@@ -101,43 +107,24 @@ func clearGraphCache() {
 	graphCache.Unlock()
 }
 
-// 書いた日のグラフだけ捨てる。当日以外（もう増えない日）は残す。
-func invalidateGraphCacheDays(jiaIsuUUID string, dayUnixes map[int64]struct{}) {
-	if len(dayUnixes) == 0 {
-		return
-	}
-	graphCache.Lock()
-	byDay, ok := graphCache.values[jiaIsuUUID]
-	if !ok {
-		graphCache.Unlock()
-		return
-	}
-	for dayUnix := range dayUnixes {
-		delete(byDay, dayUnix)
-	}
-	if len(byDay) == 0 {
-		delete(graphCache.values, jiaIsuUUID)
-	}
-	graphCache.Unlock()
-}
-
-func getCachedGraph(jiaIsuUUID string, graphDate time.Time) ([]byte, bool) {
+func getCachedGraphEntry(jiaIsuUUID string, graphDate time.Time) (graphCacheEntry, bool) {
 	dayUnix := graphCacheDay(graphDate).Unix()
 	graphCache.RLock()
 	byDay, ok := graphCache.values[jiaIsuUUID]
 	if !ok {
 		graphCache.RUnlock()
-		return nil, false
+		return graphCacheEntry{}, false
 	}
 	entry, ok := byDay[dayUnix]
 	graphCache.RUnlock()
-	if !ok {
-		return nil, false
+	if !ok || len(entry.response) != 24 {
+		return graphCacheEntry{}, false
 	}
-	return entry.body, true
+	return entry, true
 }
 
-func setCachedGraph(jiaIsuUUID string, graphDate time.Time, body []byte) {
+// sealedThrough はその時刻未満の時間帯が確定、という意味（通常は「次に開いている時間帯の開始」）。
+func setCachedGraph(jiaIsuUUID string, graphDate time.Time, response []GraphResponse, sealedThrough time.Time) {
 	dayUnix := graphCacheDay(graphDate).Unix()
 	graphCache.Lock()
 	byDay := graphCache.values[jiaIsuUUID]
@@ -145,8 +132,10 @@ func setCachedGraph(jiaIsuUUID string, graphDate time.Time, body []byte) {
 		byDay = make(map[int64]graphCacheEntry)
 		graphCache.values[jiaIsuUUID] = byDay
 	}
-	// 期限なし。更新が入った日だけ invalidateGraphCacheDays で消す。
-	byDay[dayUnix] = graphCacheEntry{body: body}
+	byDay[dayUnix] = graphCacheEntry{
+		response:      response,
+		sealedThrough: sealedThrough.Unix(),
+	}
 	graphCache.Unlock()
 }
 
