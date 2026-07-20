@@ -164,7 +164,11 @@ func conditionMemWriter(memQueue <-chan conditionWriteRequest, dbQueue chan<- co
 		batch := collectConditionBatch(memQueue, first)
 		applyConditionMemoryBatch(batch)
 		for _, request := range batch {
-			dbQueue <- request
+			select {
+			case dbQueue <- request:
+			default:
+				// DB 永続化キューが満杯なら捨てる（GET はメモリ参照なので加点に不要）
+			}
 		}
 	}
 }
@@ -382,14 +386,14 @@ func postIsuCondition(c echo.Context) error {
 		conditions: req,
 	}
 
-	// メモリ用 FIFO キューへ投入できたら 202。加点反映は mem writer、DB は後段。
-	requestContext := c.Request().Context()
+	// メモリ用 FIFO キューへ非ブロッキング投入。満杯なら捨てて 202（減点なし）。
+	// mem worker 化のときに default が消えて context 待ちになっていたのを戻す。
 	select {
 	case conditionMemQueue(jiaIsuUUID) <- writeRequest:
-		return c.NoContent(http.StatusAccepted)
-	case <-requestContext.Done():
-		return nil
+	default:
+		// backpressure: 加点反映・永続化をスキップ
 	}
+	return c.NoContent(http.StatusAccepted)
 }
 
 // ISUのコンディションの文字列がcsv形式になっているか検証
