@@ -1,0 +1,30 @@
+---
+- name: アプリホストでビルド・再起動する
+  hosts: app
+  gather_facts: false
+
+  pre_tasks:
+    - name: ビルド設定を検証する
+      ansible.builtin.assert:
+        that:
+          - app_working_dir is defined
+          - app_working_dir | length > 0
+          - build_command is defined
+          - build_command | length > 0
+          - restart_command is defined
+          - restart_command | length > 0
+        fail_msg: >-
+          Set app_working_dir, build_command and restart_command in group_vars/all.yml.
+
+  tasks:
+    - name: アプリをビルドする
+      ansible.builtin.command:
+        argv: [/bin/bash, -lc, "{{ build_command }}"]
+        chdir: "{{ app_working_dir }}"
+      changed_when: true
+
+    - name: アプリを再起動する
+      ansible.builtin.command:
+        argv: [/bin/bash, -lc, "{{ restart_command }}"]
+        chdir: "{{ app_working_dir }}"
+      changed_when: true
