@@ -148,13 +148,7 @@ type IsuCondition struct {
 	CreatedAt  time.Time `db:"created_at"`
 }
 
-// GET /api/condition 用。必要列だけスキャンする。
-type isuConditionListRow struct {
-	Timestamp time.Time `db:"timestamp"`
-	IsSitting bool      `db:"is_sitting"`
-	Condition string    `db:"condition"`
-	Message   string    `db:"message"`
-}
+// GET /api/condition のレスポンスは condition_store で組み立てる。
 
 // グラフ生成用。message は不要。
 type isuConditionGraphRow struct {
@@ -246,13 +240,6 @@ type ConditionsPercentage struct {
 	IsBroken     int `json:"is_broken"`
 	IsDirty      int `json:"is_dirty"`
 	IsOverweight int `json:"is_overweight"`
-}
-
-type GraphDataPointWithInfo struct {
-	JIAIsuUUID          string
-	StartAt             time.Time
-	Data                GraphDataPoint
-	ConditionTimestamps []int64
 }
 
 type GetIsuConditionResponse struct {

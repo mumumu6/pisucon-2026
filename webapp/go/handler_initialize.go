@@ -30,6 +30,7 @@ func postInitialize(c echo.Context) error {
 	clearIsuLatestTimestampCache()
 	clearIsuIconCache()
 	clearGraphCache()
+	clearConditionStore()
 
 	_, err = db.Exec(
 		"INSERT INTO `isu_association_config` (`name`, `url`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `url` = VALUES(`url`)",
@@ -41,15 +42,13 @@ func postInitialize(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	// 種データから仮想現在時刻とグラフを温める（以降のロジックは POST/GET 側）。
-	if err := warmIsuLatestTimestamps(); err != nil {
-		c.Logger().Errorf("warm latest timestamps error: %v", err)
+	// 大本の condition → 仮想現在時刻 → グラフキャッシュ の順で温める
+	if err := warmConditionStore(); err != nil {
+		c.Logger().Errorf("warm condition store error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
-	if err := warmGraphCache(); err != nil {
-		c.Logger().Errorf("warm graph cache error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
+	warmIsuLatestTimestamps()
+	warmGraphCache()
 
 	return c.JSON(http.StatusOK, InitializeResponse{
 		Language: "go",

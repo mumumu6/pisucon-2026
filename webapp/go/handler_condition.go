@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/gommon/log"
 )
@@ -75,74 +74,13 @@ func getIsuConditions(c echo.Context) error {
 		setCachedIsuMetadata(jiaIsuUUID, jiaUserID, isuName)
 	}
 
-	conditionsResponse, err := getIsuConditionsFromDB(db, jiaIsuUUID, endTime, conditionLevel, startTime, conditionLimit, isuName)
-	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
+	conditionsResponse := getIsuConditionsFromMem(jiaIsuUUID, endTime, conditionLevel, startTime, conditionLimit, isuName)
 	body, err := jsonFast.Marshal(conditionsResponse)
 	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	return c.JSONBlob(http.StatusOK, body)
-}
-
-// ISUのコンディションをDBから取得
-func getIsuConditionsFromDB(db *sqlx.DB, jiaIsuUUID string, endTime time.Time, conditionLevel map[string]interface{}, startTime time.Time,
-	limit int, isuName string) ([]GetIsuConditionResponse, error) {
-	allowedConditions, levelByCondition := conditionStringsForLevels(conditionLevel)
-	if len(allowedConditions) == 0 {
-		return []GetIsuConditionResponse{}, nil
-	}
-
-	conditions := make([]isuConditionListRow, 0, limit)
-	args := []interface{}{jiaIsuUUID, endTime}
-	query := "SELECT `timestamp`, `is_sitting`, `condition`, `message` FROM `isu_condition` WHERE `jia_isu_uuid` = ?" +
-		"	AND `timestamp` < ?"
-	if !startTime.IsZero() {
-		query += "	AND ? <= `timestamp`"
-		args = append(args, startTime)
-	}
-
-	if len(allowedConditions) < 8 {
-		placeholders := strings.TrimRight(strings.Repeat("?,", len(allowedConditions)), ",")
-		query += "	AND `condition` IN (" + placeholders + ")"
-		for _, condition := range allowedConditions {
-			args = append(args, condition)
-		}
-	}
-	query += "	ORDER BY `timestamp` DESC LIMIT ?"
-	args = append(args, limit)
-
-	err := db.Select(&conditions, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("db error: %v", err)
-	}
-
-	conditionsResponse := make([]GetIsuConditionResponse, 0, len(conditions))
-	for _, row := range conditions {
-		cLevel, ok := levelByCondition[row.Condition]
-		if !ok {
-			var err error
-			cLevel, err = calculateConditionLevel(row.Condition)
-			if err != nil {
-				continue
-			}
-		}
-
-		conditionsResponse = append(conditionsResponse, GetIsuConditionResponse{
-			JIAIsuUUID:     jiaIsuUUID,
-			IsuName:        isuName,
-			Timestamp:      row.Timestamp.Unix(),
-			IsSitting:      row.IsSitting,
-			Condition:      row.Condition,
-			ConditionLevel: cLevel,
-			Message:        row.Message,
-		})
-	}
-
-	return conditionsResponse, nil
 }
 
 func conditionStringsForLevels(conditionLevel map[string]interface{}) ([]string, map[string]string) {
@@ -273,9 +211,12 @@ func writeConditionBatch(batch []conditionWriteRequest) error {
 	if err != nil {
 		return err
 	}
+	// 大本の condition メモリを先に更新（GET condition / 開いている時間帯グラフの元）
+	for _, request := range batch {
+		appendIsuConditions(request.jiaIsuUUID, request.conditions)
+	}
 	// POST で届いた condition の timestamp が、その ISU の「仮想現在時刻」より進んだら更新する。
 	// さらに時間帯が変わったときだけ（例: 14台→15台）、閉じた時間帯をキャッシュへ確定する。
-	// 同じ時間帯への追記ではグラフキャッシュは触らない（開いている時間帯は GET で都度読む）。
 	for jiaIsuUUID, latest := range latestByIsu {
 		newTs := latest.condition.Timestamp
 		oldTs, hasOld := getCachedIsuLatestTimestamp(jiaIsuUUID)
@@ -283,9 +224,7 @@ func writeConditionBatch(batch []conditionWriteRequest) error {
 			oldHour := graphCacheHour(time.Unix(oldTs, 0))
 			newHour := graphCacheHour(time.Unix(newTs, 0))
 			if newHour.After(oldHour) {
-				if err := sealGraphHoursInRange(db, jiaIsuUUID, oldHour, newHour); err != nil {
-					return err
-				}
+				sealGraphHoursInRange(jiaIsuUUID, oldHour, newHour)
 			}
 		}
 		setCachedIsuLatestTimestamp(jiaIsuUUID, newTs)
