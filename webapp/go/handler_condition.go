@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -127,86 +126,108 @@ func calculateConditionLevel(condition string) (string, error) {
 // GET /api/trend
 
 func startConditionWriter() {
-	conditionWriteQueues = make([]chan conditionWriteRequest, conditionWriterCount)
-	for i := range conditionWriteQueues {
-		conditionWriteQueues[i] = make(chan conditionWriteRequest, conditionWriteQueueSize)
-		go conditionWriter(conditionWriteQueues[i])
+	conditionMemQueues = make([]chan conditionWriteRequest, conditionWriterCount)
+	conditionDBQueues = make([]chan conditionWriteRequest, conditionWriterCount)
+	for i := 0; i < conditionWriterCount; i++ {
+		conditionMemQueues[i] = make(chan conditionWriteRequest, conditionWriteQueueSize)
+		conditionDBQueues[i] = make(chan conditionWriteRequest, conditionWriteQueueSize)
+		go conditionMemWriter(conditionMemQueues[i], conditionDBQueues[i])
+		go conditionDBWriter(conditionDBQueues[i])
 	}
 }
 
-func lockConditionApply(jiaIsuUUID string) func() {
-	v, _ := conditionApplyMu.LoadOrStore(jiaIsuUUID, &sync.Mutex{})
-	mu := v.(*sync.Mutex)
-	mu.Lock()
-	return mu.Unlock
+func collectConditionBatch(queue <-chan conditionWriteRequest, first conditionWriteRequest) []conditionWriteRequest {
+	batch := []conditionWriteRequest{first}
+	timer := time.NewTimer(conditionBatchWait)
+collect:
+	for len(batch) < conditionBatchMaxRequests {
+		select {
+		case request := <-queue:
+			batch = append(batch, request)
+		case <-timer.C:
+			break collect
+		}
+	}
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	return batch
 }
 
-// applyConditionToMemory は加点用データを先にメモリへ載せる（DB 永続化より前）。
-func applyConditionToMemory(jiaIsuUUID string, conditions []PostIsuConditionRequest) {
-	if len(conditions) == 0 {
-		return
-	}
-	unlock := lockConditionApply(jiaIsuUUID)
-	defer unlock()
-
-	appendIsuConditions(jiaIsuUUID, conditions)
-
-	latest := conditions[0]
-	for i := 1; i < len(conditions); i++ {
-		if conditions[i].Timestamp >= latest.Timestamp {
-			latest = conditions[i]
-		}
-	}
-	newTs := latest.Timestamp
-	oldTs, hasOld := getCachedIsuLatestTimestamp(jiaIsuUUID)
-	if hasOld {
-		oldHour := graphCacheHour(time.Unix(oldTs, 0))
-		newHour := graphCacheHour(time.Unix(newTs, 0))
-		if newHour.After(oldHour) {
-			sealGraphHoursInRange(jiaIsuUUID, oldHour, newHour)
-		}
-	}
-	setCachedIsuLatestCondition(jiaIsuUUID, newTs, latest.IsSitting, latest.Condition, latest.Message)
-}
-
-func conditionWriter(queue <-chan conditionWriteRequest) {
-	for first := range queue {
-		batch := []conditionWriteRequest{first}
-		timer := time.NewTimer(conditionBatchWait)
-	collect:
-		for len(batch) < conditionBatchMaxRequests {
-			select {
-			case request := <-queue:
-				batch = append(batch, request)
-			case <-timer.C:
-				break collect
-			}
-		}
-		if !timer.Stop() {
-			select {
-			case <-timer.C:
-			default:
-			}
-		}
-
-		if err := writeConditionBatch(batch); err != nil {
-			log.Errorf("condition write batch error: %v", err)
+// conditionMemWriter は同一 shard を FIFO でメモリ反映する（HTTP 並列でも順序を守る）。
+// DB は別 goroutine に渡すので、INSERT 待ちで加点反映が止まらない。
+func conditionMemWriter(memQueue <-chan conditionWriteRequest, dbQueue chan<- conditionWriteRequest) {
+	for first := range memQueue {
+		batch := collectConditionBatch(memQueue, first)
+		applyConditionMemoryBatch(batch)
+		for _, request := range batch {
+			dbQueue <- request
 		}
 	}
 }
 
-func conditionWriterQueue(jiaIsuUUID string) chan conditionWriteRequest {
-	// 同じISUは常に同じwriterへ送り、到着順に処理する。
-	// これによりwriter間で同じisu行を競合させない。
+func conditionDBWriter(dbQueue <-chan conditionWriteRequest) {
+	for first := range dbQueue {
+		batch := collectConditionBatch(dbQueue, first)
+		if err := writeConditionDBBatch(batch); err != nil {
+			log.Errorf("condition db write batch error: %v", err)
+		}
+	}
+}
+
+func conditionMemQueue(jiaIsuUUID string) chan conditionWriteRequest {
+	return conditionMemQueues[conditionShardIndex(jiaIsuUUID)]
+}
+
+func conditionShardIndex(jiaIsuUUID string) int {
+	// 同じISUは常に同じ shard へ送り、到着順に処理する。
 	hash := uint32(2166136261)
 	for i := 0; i < len(jiaIsuUUID); i++ {
 		hash ^= uint32(jiaIsuUUID[i])
 		hash *= 16777619
 	}
-	return conditionWriteQueues[int(hash%conditionWriterCount)]
+	return int(hash % uint32(conditionWriterCount))
 }
 
-func writeConditionBatch(batch []conditionWriteRequest) error {
+func applyConditionMemoryBatch(batch []conditionWriteRequest) {
+	type latestCondition struct {
+		jiaIsuUUID string
+		condition  PostIsuConditionRequest
+	}
+	latestByIsu := make(map[string]latestCondition)
+	for _, request := range batch {
+		appendIsuConditions(request.jiaIsuUUID, request.conditions)
+		for _, condition := range request.conditions {
+			latest, ok := latestByIsu[request.jiaIsuUUID]
+			if !ok || condition.Timestamp >= latest.condition.Timestamp {
+				latestByIsu[request.jiaIsuUUID] = latestCondition{request.jiaIsuUUID, condition}
+			}
+		}
+	}
+	for jiaIsuUUID, latest := range latestByIsu {
+		newTs := latest.condition.Timestamp
+		oldTs, hasOld := getCachedIsuLatestTimestamp(jiaIsuUUID)
+		if hasOld {
+			oldHour := graphCacheHour(time.Unix(oldTs, 0))
+			newHour := graphCacheHour(time.Unix(newTs, 0))
+			if newHour.After(oldHour) {
+				sealGraphHoursInRange(jiaIsuUUID, oldHour, newHour)
+			}
+		}
+		setCachedIsuLatestCondition(
+			jiaIsuUUID,
+			newTs,
+			latest.condition.IsSitting,
+			latest.condition.Condition,
+			latest.condition.Message,
+		)
+	}
+}
+
+func writeConditionDBBatch(batch []conditionWriteRequest) error {
 	type latestCondition struct {
 		jiaIsuUUID string
 		condition  PostIsuConditionRequest
@@ -236,7 +257,6 @@ func writeConditionBatch(batch []conditionWriteRequest) error {
 		}
 	}
 
-	// 加点用メモリ反映は POST ハンドラ側で先行済み。ここは永続化のみ。
 	_, err := db.Exec(
 		"INSERT IGNORE INTO `isu_condition`"+
 			" (`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`) VALUES "+
@@ -362,14 +382,14 @@ func postIsuCondition(c echo.Context) error {
 		conditions: req,
 	}
 
-	// 加点はメモリ先行。キューが詰まっても DB だけ捨てて 202 を即返す（100ms timeout 回避）。
-	applyConditionToMemory(jiaIsuUUID, req)
+	// メモリ用 FIFO キューへ投入できたら 202。加点反映は mem writer、DB は後段。
+	requestContext := c.Request().Context()
 	select {
-	case conditionWriterQueue(jiaIsuUUID) <- writeRequest:
-	default:
-		// backpressure: 永続化をスキップ（欠損は許容、追試は種データ+受理分で足りる想定）
+	case conditionMemQueue(jiaIsuUUID) <- writeRequest:
+		return c.NoContent(http.StatusAccepted)
+	case <-requestContext.Done():
+		return nil
 	}
-	return c.NoContent(http.StatusAccepted)
 }
 
 // ISUのコンディションの文字列がcsv形式になっているか検証

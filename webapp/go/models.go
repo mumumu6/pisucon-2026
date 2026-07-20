@@ -91,10 +91,9 @@ var (
 	// ISU 単位でグラフの read-modify-write を直列化する（seal と GET の競合防止）
 	graphBuildMu sync.Map // map[string]*sync.Mutex
 
-	// ISU 単位でメモリ反映（append / latest / seal）を直列化し timestamp 順を守る
-	conditionApplyMu sync.Map // map[string]*sync.Mutex
-
-	conditionWriteQueues []chan conditionWriteRequest
+	// 同一 ISU は同じ shard。mem は FIFO で加点反映、db は後続永続化。
+	conditionMemQueues []chan conditionWriteRequest
+	conditionDBQueues  []chan conditionWriteRequest
 )
 
 type graphCacheEntry struct {
