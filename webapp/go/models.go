@@ -32,7 +32,7 @@ const (
 	trendCacheMaxAge            = 900 * time.Millisecond
 	conditionBatchMaxRequests   = 512
 	conditionBatchWait          = 1 * time.Millisecond
-	conditionWriterCount        = 16
+	conditionWriterCount        = 128
 	conditionWriteQueueSize     = 4096
 	graphCacheWarmWorkers       = 8
 )
