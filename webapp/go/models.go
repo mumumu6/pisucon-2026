@@ -27,7 +27,7 @@ const (
 	scoreConditionLevelInfo     = 3
 	scoreConditionLevelWarning  = 2
 	scoreConditionLevelCritical = 1
-	trendCacheTTL               = 300 * time.Millisecond
+	trendCacheTTL               = 600 * time.Millisecond
 	trendCacheMaxAge            = 900 * time.Millisecond
 	conditionBatchMaxRequests   = 128
 	conditionBatchWait          = 5 * time.Millisecond
