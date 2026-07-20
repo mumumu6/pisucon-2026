@@ -44,9 +44,9 @@ const (
 	scoreConditionLevelCritical = 1
 	trendCacheTTL               = 600 * time.Millisecond
 	trendCacheMaxAge            = 900 * time.Millisecond
-	conditionBatchMaxRequests   = 64
+	conditionBatchMaxRequests   = 128
 	conditionBatchWait          = 5 * time.Millisecond
-	conditionWriterCount        = 4
+	conditionWriterCount        = 8
 )
 
 var (
