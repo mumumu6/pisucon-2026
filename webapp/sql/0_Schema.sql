@@ -18,16 +18,16 @@ CREATE TABLE `isu` (
 ) ENGINE=InnoDB DEFAULT CHARACTER SET=utf8mb4;
 
 CREATE TABLE `isu_condition` (
-  -- 初期データの VALUES が id 付きなので列は残す。PK/INDEX には使わない。
-  -- アプリの INSERT は id を渡さないので NULL 可。
-  `id` bigint DEFAULT NULL,
+  `id` bigint AUTO_INCREMENT,
   `jia_isu_uuid` CHAR(36) NOT NULL,
   `timestamp` DATETIME NOT NULL,
   `is_sitting` TINYINT(1) NOT NULL,
   `condition` VARCHAR(255) NOT NULL,
   `message` VARCHAR(255) NOT NULL,
   `created_at` DATETIME(6) DEFAULT CURRENT_TIMESTAMP(6),
-  PRIMARY KEY (`jia_isu_uuid`, `timestamp`)
+  PRIMARY KEY(`id`),
+  -- uuid+time での範囲読みと LIMIT 20 を covering で返す
+  INDEX `idx_isu_condition_uuid_ts_covering` (`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`)
 ) ENGINE=InnoDB DEFAULT CHARACTER SET=utf8mb4;
 
 CREATE TABLE `user` (
