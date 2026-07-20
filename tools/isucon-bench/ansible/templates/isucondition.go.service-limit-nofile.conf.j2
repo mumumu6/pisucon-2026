@@ -1,2 +1,7 @@
 [Service]
 LimitNOFILE={{ app_limit_nofile }}
+RuntimeDirectory=isucondition
+RuntimeDirectoryMode=0755
+Environment=SERVER_APP_SOCK={{ app_unix_socket }}
+Environment=GOGC={{ app_gogc }}
+Environment=GOMEMLIMIT={{ app_gomemlimit }}

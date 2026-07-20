@@ -1,5 +1,9 @@
 upstream isucondition_app {
+{% if nginx_app_unix_socket | length > 0 %}
+    server unix:{{ nginx_app_unix_socket }};
+{% else %}
     server {{ nginx_app_backend_host }}:{{ nginx_app_port }};
+{% endif %}
     keepalive {{ nginx_upstream_keepalive }};
 }
 

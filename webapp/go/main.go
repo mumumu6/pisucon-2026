@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"os"
 
 	"github.com/labstack/echo/v4"
@@ -57,6 +58,23 @@ func main() {
 	postIsuConditionTargetBaseURL = os.Getenv("POST_ISUCONDITION_TARGET_BASE_URL")
 	if postIsuConditionTargetBaseURL == "" {
 		e.Logger.Fatalf("missing: POST_ISUCONDITION_TARGET_BASE_URL")
+		return
+	}
+
+	if sock := os.Getenv("SERVER_APP_SOCK"); sock != "" {
+		_ = os.Remove(sock)
+		ln, err := net.Listen("unix", sock)
+		if err != nil {
+			e.Logger.Fatalf("listen unix %s: %v", sock, err)
+			return
+		}
+		// nginx (www-data) から繋ぐため世界読み書きにする。
+		if err := os.Chmod(sock, 0o666); err != nil {
+			e.Logger.Fatalf("chmod unix %s: %v", sock, err)
+			return
+		}
+		e.Listener = ln
+		e.Logger.Fatal(e.Start(""))
 		return
 	}
 

@@ -13,6 +13,9 @@ nginx_client_body_buffer_size: 256k
 nginx_upstream_keepalive: 256
 # app と nginx が同一ホストなら 127.0.0.1。分離構成なら app のプライベートIPへ。
 nginx_app_backend_host: 127.0.0.1
+# 同一ホストなら unix socket（空文字で TCP に戻せる）
+nginx_app_unix_socket: /run/isucondition/isucondition.sock
+app_unix_socket: /run/isucondition/isucondition.sock
 
 git_repository: git@github.com:mumumu6/pisucon-2026.git
 git_version: main
@@ -34,6 +37,9 @@ build_command: go build -o isucondition .
 restart_command: sudo systemctl restart isucondition.go.service
 app_service: isucondition.go.service
 app_limit_nofile: 65535
+# 既定GOGC=100。heapに余裕があるのでGC頻度を下げてGETのテールを稼ぐ。
+app_gogc: 400
+app_gomemlimit: 2GiB
 
 # inventory のグループ所属で「そのホストで動かすサービス」を決める。
 # 1台構成なら全グループに同じホストを入れれば全部起動、分割なら所属分だけ起動。

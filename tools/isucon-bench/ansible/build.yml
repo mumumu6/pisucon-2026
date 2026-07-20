@@ -1,6 +1,7 @@
 ---
-- name: アプリホストでビルド・再起動する
-  hosts: app
+# pull 後のデプロイ一式。bench.yml と同様に systemd / build / nginx まで載せる。
+- name: アプリをビルド・再起動し、関連設定を反映する
+  hosts: app:nginx
   gather_facts: false
 
   pre_tasks:
@@ -11,20 +12,81 @@
           - app_working_dir | length > 0
           - build_command is defined
           - build_command | length > 0
-          - restart_command is defined
-          - restart_command | length > 0
+          - app_service is defined
+          - app_service | length > 0
+          - app_limit_nofile is defined
+          - app_gogc is defined
+          - app_gomemlimit is defined
+          - app_unix_socket is defined
+          - app_unix_socket | length > 0
         fail_msg: >-
-          Set app_working_dir, build_command and restart_command in group_vars/all.yml.
+          Set app_working_dir, build_command, app_service, app_limit_nofile,
+          app_gogc, app_gomemlimit and app_unix_socket in group_vars/all.yml.
+      when: inventory_hostname in groups['app']
 
   tasks:
+    - name: Goアプリのsystemd overrideディレクトリを作る
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ app_service }}.d"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      become: true
+      when: inventory_hostname in groups['app']
+
+    - name: GoアプリのLimitNOFILE・GOGC・GOMEMLIMIT・unix socketを設定する
+      ansible.builtin.template:
+        src: templates/isucondition.go.service-limit-nofile.conf.j2
+        dest: "/etc/systemd/system/{{ app_service }}.d/limit-nofile.conf"
+        owner: root
+        group: root
+        mode: "0644"
+        backup: true
+      become: true
+      when: inventory_hostname in groups['app']
+
+    - name: systemdをdaemon-reloadする
+      ansible.builtin.systemd:
+        daemon_reload: true
+      become: true
+      when: inventory_hostname in groups['app']
+
     - name: アプリをビルドする
       ansible.builtin.command:
         argv: [/bin/bash, -lc, "{{ build_command }}"]
         chdir: "{{ app_working_dir }}"
       changed_when: true
+      when: inventory_hostname in groups['app']
 
     - name: アプリを再起動する
+      ansible.builtin.systemd:
+        name: "{{ app_service }}"
+        state: restarted
+      become: true
+      when: inventory_hostname in groups['app']
+
+    - name: Nginxのサイト設定を更新する
+      ansible.builtin.template:
+        src: templates/nginx.isucondition.conf.j2
+        dest: /etc/nginx/conf.d/isucondition.conf
+        owner: root
+        group: root
+        mode: "0644"
+        backup: true
+      become: true
+      when: inventory_hostname in groups['nginx']
+
+    - name: Nginx設定を検証する
       ansible.builtin.command:
-        argv: [/bin/bash, -lc, "{{ restart_command }}"]
-        chdir: "{{ app_working_dir }}"
-      changed_when: true
+        argv: [nginx, -t]
+      become: true
+      changed_when: false
+      when: inventory_hostname in groups['nginx']
+
+    - name: Nginxを再起動する
+      ansible.builtin.systemd:
+        name: nginx
+        state: restarted
+      become: true
+      when: inventory_hostname in groups['nginx']
