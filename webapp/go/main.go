@@ -736,8 +736,7 @@ func postIsu(c echo.Context) error {
 		}
 	}
 
-	// JIAへの通信を先に完了させ、characterを含むISU行を短い
-	// トランザクションで一度に公開する。
+	// JIAへの通信を先に完了させてから ISU 行を INSERT する。
 	targetURL := getJIAServiceURL() + "/api/activate"
 	body := JIAServiceRequest{postIsuConditionTargetBaseURL, jiaIsuUUID}
 	bodyJSON, err := json.Marshal(body)
@@ -778,14 +777,7 @@ func postIsu(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	tx, err := db.Beginx()
-	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	defer tx.Rollback()
-
-	_, err = tx.Exec("INSERT INTO `isu`"+
+	_, err = db.Exec("INSERT INTO `isu`"+
 		"	(`jia_isu_uuid`, `name`, `image`, `jia_user_id`, `character`) VALUES (?, ?, ?, ?, ?)",
 		jiaIsuUUID, isuName, image, jiaUserID, isuFromJIA.Character)
 	if err != nil {
@@ -800,16 +792,11 @@ func postIsu(c echo.Context) error {
 	}
 
 	var isu Isu
-	err = tx.Get(
+	err = db.Get(
 		&isu,
 		"SELECT `id`, `jia_isu_uuid`, `name`, `character` FROM `isu`"+
 			" WHERE `jia_user_id` = ? AND `jia_isu_uuid` = ?",
 		jiaUserID, jiaIsuUUID)
-	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	err = tx.Commit()
 	if err != nil {
 		c.Logger().Errorf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
@@ -1500,13 +1487,9 @@ func writeConditionBatch(batch []conditionWriteRequest) error {
 		}
 	}
 
-	tx, err := db.Beginx()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	_, err = tx.Exec(
+	// 明示 TX は不要。1文の INSERT 自体が原子的で、autocommit ですぐロック解放される。
+	// latest UPDATE は別クエリ（失敗しても次バッチで埋まる）。
+	_, err := db.Exec(
 		"INSERT IGNORE INTO `isu_condition`"+
 			" (`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`) VALUES "+
 			strings.Join(placeholders, ", "),
@@ -1530,57 +1513,55 @@ func writeConditionBatch(batch []conditionWriteRequest) error {
 		}
 		updatedLatest = append(updatedLatest, latest)
 	}
-	if len(updatedLatest) > 0 {
-		var updateQuery strings.Builder
-		updateArgs := make([]interface{}, 0, len(updatedLatest)*11)
-		appendCase := func(column string, value func(latestCondition) interface{}) {
-			updateQuery.WriteString(" `")
-			updateQuery.WriteString(column)
-			updateQuery.WriteString("` = CASE `jia_isu_uuid`")
-			for _, latest := range updatedLatest {
-				updateQuery.WriteString(" WHEN ? THEN ?")
-				updateArgs = append(updateArgs, latest.jiaIsuUUID, value(latest))
-			}
-			updateQuery.WriteString(" ELSE `")
-			updateQuery.WriteString(column)
-			updateQuery.WriteString("` END")
-		}
-
-		updateQuery.WriteString("UPDATE `isu` SET")
-		appendCase("latest_timestamp", func(latest latestCondition) interface{} {
-			return time.Unix(latest.condition.Timestamp, 0)
-		})
-		updateQuery.WriteString(",")
-		appendCase("latest_is_sitting", func(latest latestCondition) interface{} {
-			return latest.condition.IsSitting
-		})
-		updateQuery.WriteString(",")
-		appendCase("latest_condition", func(latest latestCondition) interface{} {
-			return latest.condition.Condition
-		})
-		updateQuery.WriteString(",")
-		appendCase("latest_message", func(latest latestCondition) interface{} {
-			return latest.condition.Message
-		})
-
-		updateQuery.WriteString(" WHERE `jia_isu_uuid` IN (")
-		updateQuery.WriteString(strings.TrimRight(strings.Repeat("?,", len(updatedLatest)), ","))
-		updateQuery.WriteString(") AND (`latest_timestamp` IS NULL OR `latest_timestamp` <= CASE `jia_isu_uuid`")
-		for _, latest := range updatedLatest {
-			updateArgs = append(updateArgs, latest.jiaIsuUUID)
-		}
-		for _, latest := range updatedLatest {
-			updateQuery.WriteString(" WHEN ? THEN ?")
-			updateArgs = append(updateArgs, latest.jiaIsuUUID, time.Unix(latest.condition.Timestamp, 0))
-		}
-		updateQuery.WriteString(" END)")
-
-		if _, err = tx.Exec(updateQuery.String(), updateArgs...); err != nil {
-			return err
-		}
+	if len(updatedLatest) == 0 {
+		return nil
 	}
 
-	if err = tx.Commit(); err != nil {
+	var updateQuery strings.Builder
+	updateArgs := make([]interface{}, 0, len(updatedLatest)*11)
+	appendCase := func(column string, value func(latestCondition) interface{}) {
+		updateQuery.WriteString(" `")
+		updateQuery.WriteString(column)
+		updateQuery.WriteString("` = CASE `jia_isu_uuid`")
+		for _, latest := range updatedLatest {
+			updateQuery.WriteString(" WHEN ? THEN ?")
+			updateArgs = append(updateArgs, latest.jiaIsuUUID, value(latest))
+		}
+		updateQuery.WriteString(" ELSE `")
+		updateQuery.WriteString(column)
+		updateQuery.WriteString("` END")
+	}
+
+	updateQuery.WriteString("UPDATE `isu` SET")
+	appendCase("latest_timestamp", func(latest latestCondition) interface{} {
+		return time.Unix(latest.condition.Timestamp, 0)
+	})
+	updateQuery.WriteString(",")
+	appendCase("latest_is_sitting", func(latest latestCondition) interface{} {
+		return latest.condition.IsSitting
+	})
+	updateQuery.WriteString(",")
+	appendCase("latest_condition", func(latest latestCondition) interface{} {
+		return latest.condition.Condition
+	})
+	updateQuery.WriteString(",")
+	appendCase("latest_message", func(latest latestCondition) interface{} {
+		return latest.condition.Message
+	})
+
+	updateQuery.WriteString(" WHERE `jia_isu_uuid` IN (")
+	updateQuery.WriteString(strings.TrimRight(strings.Repeat("?,", len(updatedLatest)), ","))
+	updateQuery.WriteString(") AND (`latest_timestamp` IS NULL OR `latest_timestamp` <= CASE `jia_isu_uuid`")
+	for _, latest := range updatedLatest {
+		updateArgs = append(updateArgs, latest.jiaIsuUUID)
+	}
+	for _, latest := range updatedLatest {
+		updateQuery.WriteString(" WHEN ? THEN ?")
+		updateArgs = append(updateArgs, latest.jiaIsuUUID, time.Unix(latest.condition.Timestamp, 0))
+	}
+	updateQuery.WriteString(" END)")
+
+	if _, err = db.Exec(updateQuery.String(), updateArgs...); err != nil {
 		return err
 	}
 	for _, latest := range updatedLatest {
