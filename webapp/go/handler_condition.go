@@ -200,18 +200,7 @@ func writeConditionBatch(batch []conditionWriteRequest) error {
 		}
 	}
 
-	// 明示 TX は不要。1文の INSERT 自体が原子的で、autocommit ですぐロック解放される。
-	// latest UPDATE は別クエリ（失敗しても次バッチで埋まる）。
-	_, err := db.Exec(
-		"INSERT IGNORE INTO `isu_condition`"+
-			" (`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`) VALUES "+
-			strings.Join(placeholders, ", "),
-		args...,
-	)
-	if err != nil {
-		return err
-	}
-	// 大本の condition メモリを先に更新（GET condition / 開いている時間帯グラフの元）
+	// 加点用の GET はメモリを見るので、DB より先に反映する。
 	for _, request := range batch {
 		appendIsuConditions(request.jiaIsuUUID, request.conditions)
 	}
@@ -228,6 +217,18 @@ func writeConditionBatch(batch []conditionWriteRequest) error {
 			}
 		}
 		setCachedIsuLatestTimestamp(jiaIsuUUID, newTs)
+	}
+
+	// 永続化は後ろ。1文の INSERT 自体が原子的で、autocommit ですぐロック解放される。
+	// latest UPDATE は別クエリ（失敗しても次バッチで埋まる）。
+	_, err := db.Exec(
+		"INSERT IGNORE INTO `isu_condition`"+
+			" (`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`) VALUES "+
+			strings.Join(placeholders, ", "),
+		args...,
+	)
+	if err != nil {
+		return err
 	}
 
 	uuids := make([]string, 0, len(latestByIsu))
