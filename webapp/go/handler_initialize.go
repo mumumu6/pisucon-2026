@@ -41,7 +41,11 @@ func postInitialize(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	// 種データのグラフを載せる。以降、閉じた時間帯は GET 時に確定、開いている時間帯は都度読む。
+	// 種データから仮想現在時刻とグラフを温める（以降のロジックは POST/GET 側）。
+	if err := warmIsuLatestTimestamps(); err != nil {
+		c.Logger().Errorf("warm latest timestamps error: %v", err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
 	if err := warmGraphCache(); err != nil {
 		c.Logger().Errorf("warm graph cache error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)

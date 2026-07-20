@@ -273,8 +273,23 @@ func writeConditionBatch(batch []conditionWriteRequest) error {
 	if err != nil {
 		return err
 	}
-	// グラフキャッシュは書き込みでは触らない。
-	// 閉じた時間帯は GET 時に一度だけ確定し、開いている時間帯は GET のたびに読む。
+	// POST で届いた condition の timestamp が、その ISU の「仮想現在時刻」より進んだら更新する。
+	// さらに時間帯が変わったときだけ（例: 14台→15台）、閉じた時間帯をキャッシュへ確定する。
+	// 同じ時間帯への追記ではグラフキャッシュは触らない（開いている時間帯は GET で都度読む）。
+	for jiaIsuUUID, latest := range latestByIsu {
+		newTs := latest.condition.Timestamp
+		oldTs, hasOld := getCachedIsuLatestTimestamp(jiaIsuUUID)
+		if hasOld {
+			oldHour := graphCacheHour(time.Unix(oldTs, 0))
+			newHour := graphCacheHour(time.Unix(newTs, 0))
+			if newHour.After(oldHour) {
+				if err := sealGraphHoursInRange(db, jiaIsuUUID, oldHour, newHour); err != nil {
+					return err
+				}
+			}
+		}
+		setCachedIsuLatestTimestamp(jiaIsuUUID, newTs)
+	}
 
 	uuids := make([]string, 0, len(latestByIsu))
 	for jiaIsuUUID := range latestByIsu {

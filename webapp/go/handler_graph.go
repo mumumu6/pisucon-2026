@@ -11,7 +11,8 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// ISUのコンディショングラフ描画のための情報を取得
+// GET /api/isu/:jia_isu_uuid/graph
+// 指定日の 24 時間グラフを返す。中身の組み立ては getIsuGraphResponse。
 func getIsuGraph(c echo.Context) error {
 	jiaUserID, errStatusCode, err := getUserIDFromSession(c)
 	if err != nil {
@@ -66,6 +67,7 @@ func getIsuGraph(c echo.Context) error {
 	return c.JSONBlob(http.StatusOK, body)
 }
 
+// emptyGraphDay はデータなしの 24 スロット（1時間ごと）を作る。
 func emptyGraphDay(graphDate time.Time) []GraphResponse {
 	res := make([]GraphResponse, 24)
 	for i := 0; i < 24; i++ {
@@ -79,35 +81,24 @@ func emptyGraphDay(graphDate time.Time) []GraphResponse {
 	return res
 }
 
-// 過去日は全日キャッシュ。当日は閉じた時間帯だけキャッシュし、開いている時間帯は都度読む。
-func getIsuGraphResponse(db *sqlx.DB, jiaIsuUUID string, date time.Time) ([]GraphResponse, error) {
-	now := time.Now().In(graphCacheLocation)
-	today := graphCacheDay(now)
-	dayEnd := date.Add(24 * time.Hour)
+// isuVirtualNow はその ISU の「仮想現在時刻」を返す。
+// 壁時計ではなく、届いた condition の最新 timestamp（ISU 単位で単調増加）。
+func isuVirtualNow(jiaIsuUUID string) (time.Time, bool) {
+	ts, ok := getCachedIsuLatestTimestamp(jiaIsuUUID)
+	if !ok {
+		return time.Time{}, false
+	}
+	return time.Unix(ts, 0).In(graphCacheLocation), true
+}
 
-	// 過去日: 全日確定。前日の 23 台がまだならここで埋める。
-	if date.Before(today) {
-		if entry, ok := getCachedGraphEntry(jiaIsuUUID, date); ok {
-			if entry.sealedThrough >= dayEnd.Unix() {
-				return entry.response, nil
-			}
-			res := make([]GraphResponse, 24)
-			copy(res, entry.response)
-			sealedThrough := time.Unix(entry.sealedThrough, 0).In(graphCacheLocation)
-			if sealedThrough.Before(date) {
-				sealedThrough = date
-			}
-			for hourStart := sealedThrough; hourStart.Before(dayEnd); hourStart = hourStart.Add(time.Hour) {
-				idx := int(hourStart.Sub(date) / time.Hour)
-				slot, err := generateIsuGraphHour(db, jiaIsuUUID, hourStart)
-				if err != nil {
-					return nil, err
-				}
-				res[idx] = slot
-			}
-			setCachedGraph(jiaIsuUUID, date, res, dayEnd)
-			return res, nil
-		}
+// getIsuGraphResponse は 1 日分のグラフを組み立てる。
+//   - 仮想現在より前の時間帯: キャッシュ（未確定ならここで一度作って確定）
+//   - 仮想現在の時間帯（開いている時間帯）: 毎回 DB から読む
+//   - 仮想現在より後: 空
+func getIsuGraphResponse(db *sqlx.DB, jiaIsuUUID string, date time.Time) ([]GraphResponse, error) {
+	dayEnd := date.Add(24 * time.Hour)
+	virtualNow, ok := isuVirtualNow(jiaIsuUUID)
+	if !ok {
 		res, err := generateIsuGraphResponse(db, jiaIsuUUID, date)
 		if err != nil {
 			return nil, err
@@ -116,17 +107,29 @@ func getIsuGraphResponse(db *sqlx.DB, jiaIsuUUID string, date time.Time) ([]Grap
 		return res, nil
 	}
 
-	// 未来日
-	if date.After(today) {
+	openHour := graphCacheHour(virtualNow)
+	progressDay := graphCacheDay(openHour)
+
+	// 仮想現在より後の日
+	if date.After(progressDay) {
 		return emptyGraphDay(date), nil
 	}
 
-	// 当日: sealedThrough 未満は確定。currentHour は毎回 DB。
-	currentHour := graphCacheHour(now)
-	entry, ok := getCachedGraphEntry(jiaIsuUUID, date)
+	sealUntil := openHour
+	if date.Before(progressDay) {
+		sealUntil = dayEnd // 過去日は全日確定
+	}
+	if sealUntil.After(dayEnd) {
+		sealUntil = dayEnd
+	}
+	if sealUntil.Before(date) {
+		sealUntil = date
+	}
+
+	entry, cached := getCachedGraphEntry(jiaIsuUUID, date)
 	var res []GraphResponse
 	sealedThrough := date
-	if ok {
+	if cached {
 		res = make([]GraphResponse, 24)
 		copy(res, entry.response)
 		sealedThrough = time.Unix(entry.sealedThrough, 0).In(graphCacheLocation)
@@ -134,13 +137,11 @@ func getIsuGraphResponse(db *sqlx.DB, jiaIsuUUID string, date time.Time) ([]Grap
 			sealedThrough = date
 		}
 	} else {
-		// 初回
 		res = emptyGraphDay(date)
 	}
 
-	// 15:00 を過ぎたら 14:00 台をここで一度だけ確定する
-	if sealedThrough.Before(currentHour) {
-		for hourStart := sealedThrough; hourStart.Before(currentHour); hourStart = hourStart.Add(time.Hour) {
+	if sealedThrough.Before(sealUntil) {
+		for hourStart := sealedThrough; hourStart.Before(sealUntil); hourStart = hourStart.Add(time.Hour) {
 			idx := int(hourStart.Sub(date) / time.Hour)
 			if idx < 0 || idx >= 24 {
 				continue
@@ -151,23 +152,36 @@ func getIsuGraphResponse(db *sqlx.DB, jiaIsuUUID string, date time.Time) ([]Grap
 			}
 			res[idx] = slot
 		}
-		sealedThrough = currentHour
+		sealedThrough = sealUntil
 		setCachedGraph(jiaIsuUUID, date, res, sealedThrough)
 	}
 
-	// 開いている時間帯だけ都度生成（キャッシュしない）
-	if !currentHour.Before(date) && currentHour.Before(dayEnd) {
-		idx := int(currentHour.Sub(date) / time.Hour)
-		slot, err := generateIsuGraphHour(db, jiaIsuUUID, currentHour)
+	// 開いている時間帯だけ都度読む（書き込みのたびにパッチしない）
+	if !openHour.Before(date) && openHour.Before(dayEnd) {
+		idx := int(openHour.Sub(date) / time.Hour)
+		slot, err := generateIsuGraphHour(db, jiaIsuUUID, openHour)
 		if err != nil {
 			return nil, err
 		}
 		res[idx] = slot
 	}
+
+	// 仮想現在より後の時間帯は空
+	if !openHour.Before(date) && openHour.Before(dayEnd) {
+		for hourStart := openHour.Add(time.Hour); hourStart.Before(dayEnd); hourStart = hourStart.Add(time.Hour) {
+			idx := int(hourStart.Sub(date) / time.Hour)
+			res[idx] = GraphResponse{
+				StartAt:             hourStart.Unix(),
+				EndAt:               hourStart.Add(time.Hour).Unix(),
+				ConditionTimestamps: []int64{},
+			}
+		}
+	}
+
 	return res, nil
 }
 
-// 1時間帯ぶんだけ生成
+// generateIsuGraphHour は [hourStart, hourStart+1h) の集計を DB から作る。
 func generateIsuGraphHour(db *sqlx.DB, jiaIsuUUID string, hourStart time.Time) (GraphResponse, error) {
 	hourEnd := hourStart.Add(time.Hour)
 	rows := make([]isuConditionGraphRow, 0, 64)
@@ -200,7 +214,49 @@ func generateIsuGraphHour(db *sqlx.DB, jiaIsuUUID string, hourStart time.Time) (
 	return resp, nil
 }
 
-// グラフのデータ点を一日分生成
+// sealGraphHoursInRange は [fromHour, toHour) を「もう増えない時間帯」としてキャッシュに確定する。
+// condition の時間帯が進んだとき（例: 14台 → 15台）に、閉じた 14台を一度だけ書く。
+func sealGraphHoursInRange(db *sqlx.DB, jiaIsuUUID string, fromHour, toHour time.Time) error {
+	for hourStart := fromHour; hourStart.Before(toHour); hourStart = hourStart.Add(time.Hour) {
+		day := graphCacheDay(hourStart)
+		dayEnd := day.Add(24 * time.Hour)
+		entry, ok := getCachedGraphEntry(jiaIsuUUID, day)
+		var res []GraphResponse
+		sealedThrough := day
+		if ok {
+			res = make([]GraphResponse, 24)
+			copy(res, entry.response)
+			sealedThrough = time.Unix(entry.sealedThrough, 0).In(graphCacheLocation)
+			if sealedThrough.Before(day) {
+				sealedThrough = day
+			}
+		} else {
+			res = emptyGraphDay(day)
+		}
+		next := hourStart.Add(time.Hour)
+		if !sealedThrough.Before(next) {
+			continue // この時間帯はもう確定済み
+		}
+		for h := sealedThrough; h.Before(next) && h.Before(dayEnd); h = h.Add(time.Hour) {
+			idx := int(h.Sub(day) / time.Hour)
+			slot, err := generateIsuGraphHour(db, jiaIsuUUID, h)
+			if err != nil {
+				return err
+			}
+			res[idx] = slot
+		}
+		if next.After(sealedThrough) {
+			sealedThrough = next
+		}
+		if sealedThrough.After(dayEnd) {
+			sealedThrough = dayEnd
+		}
+		setCachedGraph(jiaIsuUUID, day, res, sealedThrough)
+	}
+	return nil
+}
+
+// generateIsuGraphResponse は 1 日分を DB から全日スキャンして作る（warm / フォールバック用）。
 func generateIsuGraphResponse(db *sqlx.DB, jiaIsuUUID string, graphDate time.Time) ([]GraphResponse, error) {
 	dataPoints := make([]GraphDataPointWithInfo, 0, 24)
 	conditionsInThisHour := make([]isuConditionGraphRow, 0, 64)
@@ -294,6 +350,7 @@ func generateIsuGraphResponse(db *sqlx.DB, jiaIsuUUID string, graphDate time.Tim
 }
 
 // 複数のISUのコンディションからグラフの一つのデータ点を計算
+// calculateGraphDataPoint は 1 時間帯内の condition 列から score / 割合を計算する。
 func calculateGraphDataPoint(isuConditions []isuConditionGraphRow) (GraphDataPoint, error) {
 	rawScore := 0
 	sittingCount := 0
@@ -333,7 +390,26 @@ func calculateGraphDataPoint(isuConditions []isuConditionGraphRow) (GraphDataPoi
 	}, nil
 }
 
-// initialize 後に種データのグラフを載せる。過去日は全日確定、当日は現在時より前だけ確定。
+// warmIsuLatestTimestamps は initialize 時に各 ISU の MAX(timestamp) を仮想現在時刻キャッシュへ載せる。
+func warmIsuLatestTimestamps() error {
+	rows, err := db.Queryx("SELECT `jia_isu_uuid`, MAX(`timestamp`) FROM `isu_condition` GROUP BY `jia_isu_uuid`")
+	if err != nil {
+		return fmt.Errorf("select latest timestamps: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var uuid string
+		var ts time.Time
+		if err := rows.Scan(&uuid, &ts); err != nil {
+			return fmt.Errorf("scan latest timestamp: %w", err)
+		}
+		setCachedIsuLatestTimestamp(uuid, ts.Unix())
+	}
+	return rows.Err()
+}
+
+// warmGraphCache は initialize 時に種データの日毎グラフをキャッシュする。
+// 各日の sealedThrough は、その ISU の仮想現在時刻より前だけ確定済みにする。
 func warmGraphCache() error {
 	type job struct {
 		uuid string
@@ -383,10 +459,6 @@ func warmGraphCache() error {
 	if workerCount > len(jobsList) {
 		workerCount = len(jobsList)
 	}
-	now := time.Now().In(graphCacheLocation)
-	today := graphCacheDay(now)
-	currentHour := graphCacheHour(now)
-
 	errCh := make(chan error, workerCount)
 	var wg sync.WaitGroup
 	for i := 0; i < workerCount; i++ {
@@ -399,15 +471,15 @@ func warmGraphCache() error {
 					errCh <- err
 					return
 				}
-				sealedThrough := j.day.Add(24 * time.Hour)
-				if !j.day.Before(today) {
-					// 当日: 開いている時間帯はまだ確定しない
-					sealedThrough = currentHour
-					if sealedThrough.Before(j.day) {
+				dayEnd := j.day.Add(24 * time.Hour)
+				sealedThrough := dayEnd
+				if virtualNow, ok := isuVirtualNow(j.uuid); ok {
+					openHour := graphCacheHour(virtualNow)
+					progressDay := graphCacheDay(openHour)
+					if j.day.Equal(progressDay) {
+						sealedThrough = openHour
+					} else if j.day.After(progressDay) {
 						sealedThrough = j.day
-					}
-					if sealedThrough.After(j.day.Add(24 * time.Hour)) {
-						sealedThrough = j.day.Add(24 * time.Hour)
 					}
 				}
 				setCachedGraph(j.uuid, j.day, res, sealedThrough)

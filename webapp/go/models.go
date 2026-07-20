@@ -92,7 +92,7 @@ var (
 
 type graphCacheEntry struct {
 	response []GraphResponse
-	// sealedThrough 未満の時間帯は確定済み（Unix）。開いている時間帯は含めない。
+	// sealedThrough: この Unix 時刻未満の時間帯は確定済み。開いている時間帯は含めない。
 	sealedThrough int64
 }
 

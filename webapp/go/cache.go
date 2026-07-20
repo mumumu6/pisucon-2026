@@ -2,13 +2,13 @@ package main
 
 import "time"
 
-// グラフ日のキャッシュキー（JST 0時）。getIsuGraph の datetime（日毎）と揃える。
+// graphCacheDay は JST のその日 0:00（グラフの datetime キー）。
 func graphCacheDay(ts time.Time) time.Time {
 	t := ts.In(graphCacheLocation)
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, graphCacheLocation)
 }
 
-// グラフの時間帯境界（JST）。その時刻までは確定、この時間帯だけ更新対象。
+// graphCacheHour は JST でその時刻が属する時間帯の開始（例: 14:15 → 14:00）。
 func graphCacheHour(ts time.Time) time.Time {
 	t := ts.In(graphCacheLocation)
 	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), 0, 0, 0, graphCacheLocation)
@@ -74,12 +74,14 @@ func setCachedIsuMetadata(jiaIsuUUID, jiaUserID, name string) {
 	isuMetadataCache.Unlock()
 }
 
+// clearIsuLatestTimestampCache は各 ISU の仮想現在時刻キャッシュを捨てる（initialize 時）。
 func clearIsuLatestTimestampCache() {
 	isuLatestTimestampCache.Lock()
 	isuLatestTimestampCache.values = make(map[string]int64)
 	isuLatestTimestampCache.Unlock()
 }
 
+// getCachedIsuLatestTimestamp はその ISU の仮想現在時刻（最新 condition の unix）を返す。
 func getCachedIsuLatestTimestamp(jiaIsuUUID string) (int64, bool) {
 	isuLatestTimestampCache.RLock()
 	timestamp, ok := isuLatestTimestampCache.values[jiaIsuUUID]
@@ -87,6 +89,7 @@ func getCachedIsuLatestTimestamp(jiaIsuUUID string) (int64, bool) {
 	return timestamp, ok
 }
 
+// setCachedIsuLatestTimestamp は仮想現在時刻を進める（より新しい timestamp のときだけ）。
 func setCachedIsuLatestTimestamp(jiaIsuUUID string, timestamp int64) {
 	isuLatestTimestampCache.Lock()
 	if cachedTimestamp, ok := isuLatestTimestampCache.values[jiaIsuUUID]; !ok || timestamp > cachedTimestamp {
@@ -101,12 +104,14 @@ func clearIsuIconCache() {
 	isuIconCache.Unlock()
 }
 
+// clearGraphCache は日毎グラフキャッシュを全部捨てる（initialize 時）。
 func clearGraphCache() {
 	graphCache.Lock()
 	graphCache.values = make(map[string]map[int64]graphCacheEntry)
 	graphCache.Unlock()
 }
 
+// getCachedGraphEntry は ISU×日 のグラフキャッシュを取る。
 func getCachedGraphEntry(jiaIsuUUID string, graphDate time.Time) (graphCacheEntry, bool) {
 	dayUnix := graphCacheDay(graphDate).Unix()
 	graphCache.RLock()
@@ -123,7 +128,8 @@ func getCachedGraphEntry(jiaIsuUUID string, graphDate time.Time) (graphCacheEntr
 	return entry, true
 }
 
-// sealedThrough はその時刻未満の時間帯が確定、という意味（通常は「次に開いている時間帯の開始」）。
+// setCachedGraph は日毎グラフを保存する。
+// sealedThrough 未満の時間帯は確定済み（それ以降はまだ開いている / 未作成）。
 func setCachedGraph(jiaIsuUUID string, graphDate time.Time, response []GraphResponse, sealedThrough time.Time) {
 	dayUnix := graphCacheDay(graphDate).Unix()
 	graphCache.Lock()
