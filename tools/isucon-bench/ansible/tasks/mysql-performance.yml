@@ -24,6 +24,7 @@
     owner: root
     group: root
     mode: "0644"
+    backup: true
   notify: MariaDBを再起動する
 
 # cnf ではユーザー権限は書けない。初期は isucon@localhost だけなのでリモート用を作る。

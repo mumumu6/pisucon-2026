@@ -1,0 +1,61 @@
+---
+# Ansible の backup: true でリモートに残ったタイムスタンプ付きバックアップを手元へ回収する。
+- name: 設定バックアップを手元PCへ回収する
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    config_backup_search_paths:
+      - /etc/mysql/mariadb.conf.d
+      - /etc/nginx
+      - /etc/nginx/conf.d
+      - /etc/systemd/system
+      - "{{ remote_project_root }}/webapp/go"
+    local_config_backup_root: "{{ playbook_dir }}/../../../log/config-backups"
+  tasks:
+    - name: バックアップ探索先の存在を確認する
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop: "{{ config_backup_search_paths }}"
+      register: backup_path_stats
+
+    - name: Ansibleバックアップファイルを探す
+      ansible.builtin.find:
+        paths: "{{ item.stat.path }}"
+        patterns:
+          - "*.????-??-??@??:??:??~"
+        file_type: file
+        recurse: true
+      loop: "{{ backup_path_stats.results }}"
+      when: item.stat.exists | default(false) and item.stat.isdir | default(false)
+      register: backup_find_results
+
+    - name: 見つかったバックアップをまとめる
+      ansible.builtin.set_fact:
+        remote_config_backups: "{{ backup_find_results.results | selectattr('files', 'defined') | map(attribute='files') | flatten }}"
+
+    - name: 手元PCにホスト別ディレクトリを作る
+      ansible.builtin.file:
+        path: "{{ local_config_backup_root }}/{{ inventory_hostname }}"
+        state: directory
+        mode: "0755"
+      delegate_to: localhost
+      become: false
+      when: (remote_config_backups | default([])) | length > 0
+      run_once: false
+
+    - name: バックアップを手元へ取得する
+      ansible.builtin.fetch:
+        src: "{{ item.path }}"
+        dest: "{{ local_config_backup_root }}/{{ inventory_hostname }}{{ item.path }}"
+        flat: true
+      loop: "{{ remote_config_backups | default([]) }}"
+      loop_control:
+        label: "{{ inventory_hostname }}:{{ item.path }}"
+
+    - name: 回収結果を表示する
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}: collected
+          {{ (remote_config_backups | default([])) | length }} backup file(s)
+          into {{ local_config_backup_root }}/{{ inventory_hostname }}/

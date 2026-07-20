@@ -16,6 +16,7 @@
         src: templates/pprof.go.j2
         dest: "{{ pprof_source }}"
         mode: "0644"
+        backup: true
       register: pprof_source_on
       when: instrument_state == 'on'
 

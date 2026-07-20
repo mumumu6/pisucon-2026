@@ -57,6 +57,7 @@
         owner: root
         group: root
         mode: "0644"
+        backup: true
       notify: Goアプリのsystemd設定を反映する
       when: inventory_hostname in groups['app']
 
@@ -125,6 +126,7 @@
         owner: root
         group: root
         mode: "0644"
+        backup: true
       notify: Nginxを再起動する
       when: inventory_hostname in groups['nginx']
 
@@ -133,6 +135,7 @@
         path: /etc/nginx/nginx.conf
         regexp: 'worker_connections\s+\d+;'
         replace: 'worker_connections {{ nginx_worker_connections }};'
+        backup: true
       notify: Nginxを再起動する
       when: inventory_hostname in groups['nginx']
 
@@ -142,6 +145,7 @@
         regexp: '^\s*worker_rlimit_nofile\s+'
         line: "worker_rlimit_nofile {{ nginx_limit_nofile }};"
         insertafter: '^worker_processes'
+        backup: true
       notify: Nginxを再起動する
       when: inventory_hostname in groups['nginx']
 
@@ -152,6 +156,7 @@
         owner: root
         group: root
         mode: "0644"
+        backup: true
       notify: Nginxを再起動する
       when: inventory_hostname in groups['nginx']
 
