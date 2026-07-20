@@ -26,7 +26,8 @@ CREATE TABLE `isu_condition` (
   `message` VARCHAR(255) NOT NULL,
   `created_at` DATETIME(6) DEFAULT CURRENT_TIMESTAMP(6),
   PRIMARY KEY(`id`),
-  INDEX `idx_isu_condition_jia_isu_uuid_timestamp` (`jia_isu_uuid`, `timestamp`)
+  -- uuid+time での範囲読みと LIMIT 20 を covering で返す
+  INDEX `idx_isu_condition_uuid_ts_covering` (`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`)
 ) ENGINE=InnoDB DEFAULT CHARACTER SET=utf8mb4;
 
 CREATE TABLE `user` (

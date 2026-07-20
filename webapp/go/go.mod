@@ -10,4 +10,7 @@ require (
 	github.com/labstack/gommon v0.3.0
 )
 
-require golang.org/x/crypto v0.0.0-20210513164829-c07d793c2f9a // indirect
+require (
+	github.com/json-iterator/go v1.1.12
+	golang.org/x/crypto v0.0.0-20210513164829-c07d793c2f9a // indirect
+)

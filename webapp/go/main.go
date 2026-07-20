@@ -26,7 +26,10 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/labstack/gommon/log"
+	jsoniter "github.com/json-iterator/go"
 )
+
+var jsonFast = jsoniter.ConfigFastest
 
 const (
 	sessionName                 = "isucondition_go"
@@ -146,6 +149,21 @@ type IsuCondition struct {
 	Condition  string    `db:"condition"`
 	Message    string    `db:"message"`
 	CreatedAt  time.Time `db:"created_at"`
+}
+
+// GET /api/condition 用。必要列だけスキャンする。
+type isuConditionListRow struct {
+	Timestamp time.Time `db:"timestamp"`
+	IsSitting bool      `db:"is_sitting"`
+	Condition string    `db:"condition"`
+	Message   string    `db:"message"`
+}
+
+// グラフ生成用。message は不要。
+type isuConditionGraphRow struct {
+	Timestamp time.Time `db:"timestamp"`
+	IsSitting bool      `db:"is_sitting"`
+	Condition string    `db:"condition"`
 }
 
 type MySQLConnectionEnv struct {
@@ -932,7 +950,7 @@ func generateIsuGraphResponse(db *sqlx.DB, jiaIsuUUID string, graphDate time.Tim
 	conditionsInThisHour := []IsuCondition{}
 	timestampsInThisHour := []int64{}
 	var startTimeInThisHour time.Time
-	var condition IsuCondition
+	var row isuConditionGraphRow
 	endTime := graphDate.Add(time.Hour * 24)
 
 	rows, err := db.Queryx(
@@ -945,9 +963,14 @@ func generateIsuGraphResponse(db *sqlx.DB, jiaIsuUUID string, graphDate time.Tim
 	defer rows.Close()
 
 	for rows.Next() {
-		err = rows.StructScan(&condition)
+		err = rows.StructScan(&row)
 		if err != nil {
 			return nil, err
+		}
+		condition := IsuCondition{
+			Timestamp: row.Timestamp,
+			IsSitting: row.IsSitting,
+			Condition: row.Condition,
 		}
 
 		truncatedConditionTime := condition.Timestamp.Truncate(time.Hour)
@@ -1147,18 +1170,23 @@ func getIsuConditions(c echo.Context) error {
 		c.Logger().Errorf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
-	return c.JSON(http.StatusOK, conditionsResponse)
+	body, err := jsonFast.Marshal(conditionsResponse)
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	return c.JSONBlob(http.StatusOK, body)
 }
 
 // ISUのコンディションをDBから取得
 func getIsuConditionsFromDB(db *sqlx.DB, jiaIsuUUID string, endTime time.Time, conditionLevel map[string]interface{}, startTime time.Time,
-	limit int, isuName string) ([]*GetIsuConditionResponse, error) {
-	allowedConditions := conditionStringsForLevels(conditionLevel)
+	limit int, isuName string) ([]GetIsuConditionResponse, error) {
+	allowedConditions, levelByCondition := conditionStringsForLevels(conditionLevel)
 	if len(allowedConditions) == 0 {
-		return []*GetIsuConditionResponse{}, nil
+		return []GetIsuConditionResponse{}, nil
 	}
 
-	conditions := []IsuCondition{}
+	conditions := make([]isuConditionListRow, 0, limit)
 	args := []interface{}{jiaIsuUUID, endTime}
 	query := "SELECT `timestamp`, `is_sitting`, `condition`, `message` FROM `isu_condition` WHERE `jia_isu_uuid` = ?" +
 		"	AND `timestamp` < ?"
@@ -1182,30 +1210,34 @@ func getIsuConditionsFromDB(db *sqlx.DB, jiaIsuUUID string, endTime time.Time, c
 		return nil, fmt.Errorf("db error: %v", err)
 	}
 
-	conditionsResponse := []*GetIsuConditionResponse{}
-	for _, c := range conditions {
-		cLevel, err := calculateConditionLevel(c.Condition)
-		if err != nil {
-			continue
+	conditionsResponse := make([]GetIsuConditionResponse, 0, len(conditions))
+	for _, row := range conditions {
+		cLevel, ok := levelByCondition[row.Condition]
+		if !ok {
+			var err error
+			cLevel, err = calculateConditionLevel(row.Condition)
+			if err != nil {
+				continue
+			}
 		}
 
-		data := GetIsuConditionResponse{
+		conditionsResponse = append(conditionsResponse, GetIsuConditionResponse{
 			JIAIsuUUID:     jiaIsuUUID,
 			IsuName:        isuName,
-			Timestamp:      c.Timestamp.Unix(),
-			IsSitting:      c.IsSitting,
-			Condition:      c.Condition,
+			Timestamp:      row.Timestamp.Unix(),
+			IsSitting:      row.IsSitting,
+			Condition:      row.Condition,
 			ConditionLevel: cLevel,
-			Message:        c.Message,
-		}
-		conditionsResponse = append(conditionsResponse, &data)
+			Message:        row.Message,
+		})
 	}
 
 	return conditionsResponse, nil
 }
 
-func conditionStringsForLevels(conditionLevel map[string]interface{}) []string {
+func conditionStringsForLevels(conditionLevel map[string]interface{}) ([]string, map[string]string) {
 	conditions := make([]string, 0, 8)
+	levelByCondition := make(map[string]string, 8)
 	for _, isDirty := range []bool{false, true} {
 		for _, isOverweight := range []bool{false, true} {
 			for _, isBroken := range []bool{false, true} {
@@ -1216,11 +1248,12 @@ func conditionStringsForLevels(conditionLevel map[string]interface{}) []string {
 				level, _ := calculateConditionLevel(condition)
 				if _, ok := conditionLevel[level]; ok {
 					conditions = append(conditions, condition)
+					levelByCondition[condition] = level
 				}
 			}
 		}
 	}
-	return conditions
+	return conditions, levelByCondition
 }
 
 // ISUのコンディションの文字列からコンディションレベルを計算
@@ -1571,9 +1604,12 @@ func postIsuCondition(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "missing: jia_isu_uuid")
 	}
 
-	req := []PostIsuConditionRequest{}
-	err := c.Bind(&req)
+	body, err := ioutil.ReadAll(c.Request().Body)
 	if err != nil {
+		return c.String(http.StatusBadRequest, "bad request body")
+	}
+	req := []PostIsuConditionRequest{}
+	if err := jsonFast.Unmarshal(body, &req); err != nil {
 		return c.String(http.StatusBadRequest, "bad request body")
 	} else if len(req) == 0 {
 		return c.String(http.StatusBadRequest, "bad request body")
