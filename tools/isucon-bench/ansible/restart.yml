@@ -1,0 +1,18 @@
+---
+# 追試対策: 全サーバーを OS 再起動し、復帰まで待つ。
+# initialize は走らないので、再起動前に書き込まれたデータの永続化確認に使う。
+- name: 全サーバーを再起動する
+  hosts: all
+  gather_facts: false
+  become: true
+  serial: 1
+  order: sorted
+
+  tasks:
+    - name: ホストを再起動して復帰を待つ
+      ansible.builtin.reboot:
+        msg: "isucon follow-up persistence check reboot"
+        reboot_timeout: 600
+        connect_timeout: 30
+        post_reboot_delay: 15
+        test_command: whoami
