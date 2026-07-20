@@ -46,7 +46,7 @@ const (
 	trendCacheMaxAge            = 900 * time.Millisecond
 	conditionBatchMaxRequests   = 128
 	conditionBatchWait          = 5 * time.Millisecond
-	conditionWriterCount        = 8
+	conditionWriterCount        = 4
 )
 
 var (
