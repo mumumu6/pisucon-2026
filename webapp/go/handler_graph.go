@@ -95,25 +95,37 @@ func isuVirtualNow(jiaIsuUUID string) (time.Time, bool) {
 	return time.Unix(ts, 0).In(graphCacheLocation), true
 }
 
-// lockGraphBuild は同一 ISU のグラフ組み立てを直列化する。
+// graphBuildRW は ISU ごとの RWMutex を返す。
+func graphBuildRW(jiaIsuUUID string) *sync.RWMutex {
+	v, _ := graphBuildMu.LoadOrStore(jiaIsuUUID, &sync.RWMutex{})
+	return v.(*sync.RWMutex)
+}
+
+// lockGraphBuild は seal / キャッシュ更新用の排他ロック。
 func lockGraphBuild(jiaIsuUUID string) func() {
-	v, _ := graphBuildMu.LoadOrStore(jiaIsuUUID, &sync.Mutex{})
-	mu := v.(*sync.Mutex)
+	mu := graphBuildRW(jiaIsuUUID)
 	mu.Lock()
 	return mu.Unlock
+}
+
+// rlockGraphBuild は組み立て済みキャッシュを読むだけの共有ロック。
+func rlockGraphBuild(jiaIsuUUID string) func() {
+	mu := graphBuildRW(jiaIsuUUID)
+	mu.RLock()
+	return mu.RUnlock
 }
 
 // getIsuGraphResponse は 1 日分のグラフを組み立てる。
 //   - 仮想現在より前の時間帯: グラフキャッシュ（未確定なら大本メモリから確定）
 //   - 仮想現在の時間帯: 大本メモリから都度集計
 //   - 仮想現在より後: 空
+// 読みだけなら RLock で並列、seal が必要なら Lock。
 func getIsuGraphResponse(jiaIsuUUID string, date time.Time) ([]GraphResponse, error) {
-	unlock := lockGraphBuild(jiaIsuUUID)
-	defer unlock()
-
 	dayEnd := date.Add(24 * time.Hour)
 	virtualNow, ok := isuVirtualNow(jiaIsuUUID)
 	if !ok {
+		unlock := lockGraphBuild(jiaIsuUUID)
+		defer unlock()
 		res := generateIsuGraphDayFromMem(jiaIsuUUID, date)
 		setCachedGraph(jiaIsuUUID, date, res, dayEnd)
 		return res, nil
@@ -138,9 +150,31 @@ func getIsuGraphResponse(jiaIsuUUID string, date time.Time) ([]GraphResponse, er
 		sealUntil = date
 	}
 
+	// すでに seal 済みなら RLock だけで返す（同一 ISU の複数日 GET を並列化）
+	unlockR := rlockGraphBuild(jiaIsuUUID)
 	entry, cached := getCachedGraphEntry(jiaIsuUUID, date)
-	var res []GraphResponse
 	sealedThrough := date
+	var res []GraphResponse
+	if cached {
+		res = entry.response
+		sealedThrough = time.Unix(entry.sealedThrough, 0).In(graphCacheLocation)
+		if sealedThrough.Before(date) {
+			sealedThrough = date
+		}
+	}
+	needSeal := !cached || sealedThrough.Before(sealUntil)
+	if !needSeal {
+		res = finishGraphDayResponse(jiaIsuUUID, res, date, dayEnd, openHour)
+		unlockR()
+		return res, nil
+	}
+	unlockR()
+
+	unlock := lockGraphBuild(jiaIsuUUID)
+	defer unlock()
+
+	entry, cached = getCachedGraphEntry(jiaIsuUUID, date)
+	sealedThrough = date
 	if cached {
 		res = entry.response
 		sealedThrough = time.Unix(entry.sealedThrough, 0).In(graphCacheLocation)
@@ -163,25 +197,28 @@ func getIsuGraphResponse(jiaIsuUUID string, date time.Time) ([]GraphResponse, er
 		setCachedGraph(jiaIsuUUID, date, res, sealedThrough)
 	}
 
-	// 開いている時間帯は大本メモリから集計（キャッシュへは書かない。setCachedGraph は複製保存）
+	return finishGraphDayResponse(jiaIsuUUID, res, date, dayEnd, openHour), nil
+}
+
+// finishGraphDayResponse は open hour / 未来枠を載せた日次レスポンスを返す。
+func finishGraphDayResponse(jiaIsuUUID string, res []GraphResponse, date, dayEnd, openHour time.Time) []GraphResponse {
+	if res == nil {
+		res = emptyGraphDay(date)
+	}
+	// 開いている時間帯は大本メモリから集計（日次キャッシュへは書かない）
 	if !openHour.Before(date) && openHour.Before(dayEnd) {
 		idx := int(openHour.Sub(date) / time.Hour)
 		res[idx] = getOrGenerateOpenHourGraph(jiaIsuUUID, openHour)
-	}
-
-	// 仮想現在より後の時間帯は空
-	if !openHour.Before(date) && openHour.Before(dayEnd) {
 		for hourStart := openHour.Add(time.Hour); hourStart.Before(dayEnd); hourStart = hourStart.Add(time.Hour) {
-			idx := int(hourStart.Sub(date) / time.Hour)
-			res[idx] = GraphResponse{
+			i := int(hourStart.Sub(date) / time.Hour)
+			res[i] = GraphResponse{
 				StartAt:             hourStart.Unix(),
 				EndAt:               hourStart.Add(time.Hour).Unix(),
 				ConditionTimestamps: []int64{},
 			}
 		}
 	}
-
-	return res, nil
+	return res
 }
 
 // generateIsuGraphHour は [hourStart, hourStart+1h) を大本メモリから1パスで集計する。
