@@ -29,23 +29,22 @@ const (
 	scoreConditionLevelWarning  = 2
 	scoreConditionLevelCritical = 1
 	// trend TTL 配分（initialize 起点）
-	// 0-5s を 100ms にすると人増えすぎて GraphGood が削れる（3.31M）。
-	// 3.88M 付近の配分に戻す。
-	// 0-5s / 5-10s / 10-25s / 25-45s / 45s-
-	trendTTL0                   = 100 * time.Millisecond
-	trendMaxAge0                = 1000 * time.Millisecond
+	// 序盤は触らず、長いTTLの帯を早く始めて後半を厚くする。
+	// 0-5s / 5-10s / 10-20s / 20-35s / 35s-
+	trendTTL0                   = 1500 * time.Millisecond
+	trendMaxAge0                = 1800 * time.Millisecond
 	trendTTL1                   = 2200 * time.Millisecond
 	trendMaxAge1                = 2500 * time.Millisecond
-	trendTTL2                   = 3000 * time.Millisecond
-	trendMaxAge2                = 3500 * time.Millisecond
-	trendTTL3                   = 4000 * time.Millisecond
-	trendMaxAge3                = 4500 * time.Millisecond
-	trendTTL4                   = 5500 * time.Millisecond
-	trendMaxAge4                = 6000 * time.Millisecond
+	trendTTL2                   = 3500 * time.Millisecond
+	trendMaxAge2                = 4000 * time.Millisecond
+	trendTTL3                   = 5500 * time.Millisecond
+	trendMaxAge3                = 6000 * time.Millisecond
+	trendTTL4                   = 7000 * time.Millisecond
+	trendMaxAge4                = 8000 * time.Millisecond
 	trendPhaseUntil0            = 5 * time.Second
 	trendPhaseUntil1            = 10 * time.Second
-	trendPhaseUntil2            = 25 * time.Second
-	trendPhaseUntil3            = 45 * time.Second
+	trendPhaseUntil2            = 20 * time.Second
+	trendPhaseUntil3            = 35 * time.Second
 	conditionBatchMaxRequests   = 512
 	conditionBatchWait          = 1 * time.Millisecond
 	conditionWriterCount        = 128
