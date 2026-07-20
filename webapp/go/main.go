@@ -1507,7 +1507,7 @@ func writeConditionBatch(batch []conditionWriteRequest) error {
 	defer tx.Rollback()
 
 	_, err = tx.Exec(
-		"INSERT INTO `isu_condition`"+
+		"INSERT IGNORE INTO `isu_condition`"+
 			" (`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`) VALUES "+
 			strings.Join(placeholders, ", "),
 		args...,
