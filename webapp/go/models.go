@@ -28,8 +28,15 @@ const (
 	scoreConditionLevelInfo     = 3
 	scoreConditionLevelWarning  = 2
 	scoreConditionLevelCritical = 1
-	trendCacheTTL               = 1500 * time.Millisecond
-	trendCacheMaxAge            = 1800 * time.Millisecond
+	// いったん固定 1800/2000 で試す（動的は値を揃えて実質オフ）
+	trendTTLEarly               = 1800 * time.Millisecond
+	trendMaxAgeEarly            = 2000 * time.Millisecond
+	trendTTLMid                 = 1800 * time.Millisecond
+	trendMaxAgeMid              = 2000 * time.Millisecond
+	trendTTLLate                = 1800 * time.Millisecond
+	trendMaxAgeLate             = 2000 * time.Millisecond
+	trendPhaseEarlyUntil        = 25 * time.Second
+	trendPhaseMidUntil          = 45 * time.Second
 	conditionBatchMaxRequests   = 512
 	conditionBatchWait          = 1 * time.Millisecond
 	conditionWriterCount        = 128
@@ -63,6 +70,8 @@ var (
 	jiaServiceURL   = defaultJIAServiceURL
 
 	defaultIconImage []byte
+
+	trendScheduleStart time.Time
 
 	trendCache = struct {
 		sync.RWMutex

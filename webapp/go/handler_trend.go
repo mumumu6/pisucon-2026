@@ -33,7 +33,7 @@ func getTrendJSON() ([]byte, error) {
 		return body, nil
 	}
 
-	// fresh期限後から生成後800msまではstaleを即返し、裏で更新する。
+	// fresh期限後から MaxAge までは stale を即返し、裏で更新する。
 	// それより古い値は返さない。
 	if stale {
 		if done, started := startTrendCacheRefresh(); started {
@@ -62,6 +62,34 @@ func getTrendJSON() ([]byte, error) {
 	return nil, err
 }
 
+// trendCacheDurations は initialize からの経過で TTL を変える。
+// 序盤は短くしてユーザーを増やし、終盤は長くして増加を抑える。
+func trendCacheDurations() (ttl, maxAge time.Duration) {
+	start := trendScheduleStart
+	if start.IsZero() {
+		return trendTTLMid, trendMaxAgeMid
+	}
+	elapsed := time.Since(start)
+	switch {
+	case elapsed < trendPhaseEarlyUntil:
+		return trendTTLEarly, trendMaxAgeEarly
+	case elapsed < trendPhaseMidUntil:
+		return trendTTLMid, trendMaxAgeMid
+	default:
+		return trendTTLLate, trendMaxAgeLate
+	}
+}
+
+func resetTrendSchedule() {
+	trendScheduleStart = time.Now()
+	trendCache.Lock()
+	trendCache.body = nil
+	trendCache.expiresAt = time.Time{}
+	trendCache.staleUntil = time.Time{}
+	trendCache.err = nil
+	trendCache.Unlock()
+}
+
 // startTrendCacheRefreshは同時に1本だけキャッシュ更新を開始する。
 // 呼び出し元の判定中にキャッシュが更新済みならnil, falseを返す。
 func startTrendCacheRefresh() (chan struct{}, bool) {
@@ -83,12 +111,13 @@ func startTrendCacheRefresh() (chan struct{}, bool) {
 func refreshTrendCache(done chan struct{}) ([]byte, error) {
 	body, err := buildTrendJSON()
 
+	ttl, maxAge := trendCacheDurations()
 	trendCache.Lock()
 	if err == nil {
 		updatedAt := time.Now()
 		trendCache.body = body
-		trendCache.expiresAt = updatedAt.Add(trendCacheTTL)
-		trendCache.staleUntil = updatedAt.Add(trendCacheMaxAge)
+		trendCache.expiresAt = updatedAt.Add(ttl)
+		trendCache.staleUntil = updatedAt.Add(maxAge)
 	} else {
 		log.Errorf("failed to refresh trend cache: %v", err)
 	}

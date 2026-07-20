@@ -50,6 +50,7 @@ func postInitialize(c echo.Context) error {
 	}
 	warmIsuLatestTimestamps()
 	warmGraphCache()
+	resetTrendSchedule()
 
 	return c.JSON(http.StatusOK, InitializeResponse{
 		Language: "go",
