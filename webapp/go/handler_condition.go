@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -128,9 +129,44 @@ func calculateConditionLevel(condition string) (string, error) {
 func startConditionWriter() {
 	conditionWriteQueues = make([]chan conditionWriteRequest, conditionWriterCount)
 	for i := range conditionWriteQueues {
-		conditionWriteQueues[i] = make(chan conditionWriteRequest, 1024)
+		conditionWriteQueues[i] = make(chan conditionWriteRequest, conditionWriteQueueSize)
 		go conditionWriter(conditionWriteQueues[i])
 	}
+}
+
+func lockConditionApply(jiaIsuUUID string) func() {
+	v, _ := conditionApplyMu.LoadOrStore(jiaIsuUUID, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+
+// applyConditionToMemory は加点用データを先にメモリへ載せる（DB 永続化より前）。
+func applyConditionToMemory(jiaIsuUUID string, conditions []PostIsuConditionRequest) {
+	if len(conditions) == 0 {
+		return
+	}
+	unlock := lockConditionApply(jiaIsuUUID)
+	defer unlock()
+
+	appendIsuConditions(jiaIsuUUID, conditions)
+
+	latest := conditions[0]
+	for i := 1; i < len(conditions); i++ {
+		if conditions[i].Timestamp >= latest.Timestamp {
+			latest = conditions[i]
+		}
+	}
+	newTs := latest.Timestamp
+	oldTs, hasOld := getCachedIsuLatestTimestamp(jiaIsuUUID)
+	if hasOld {
+		oldHour := graphCacheHour(time.Unix(oldTs, 0))
+		newHour := graphCacheHour(time.Unix(newTs, 0))
+		if newHour.After(oldHour) {
+			sealGraphHoursInRange(jiaIsuUUID, oldHour, newHour)
+		}
+	}
+	setCachedIsuLatestCondition(jiaIsuUUID, newTs, latest.IsSitting, latest.Condition, latest.Message)
 }
 
 func conditionWriter(queue <-chan conditionWriteRequest) {
@@ -200,32 +236,7 @@ func writeConditionBatch(batch []conditionWriteRequest) error {
 		}
 	}
 
-	// 加点用の GET はメモリを見るので、DB より先に反映する。
-	for _, request := range batch {
-		appendIsuConditions(request.jiaIsuUUID, request.conditions)
-	}
-	// POST で届いた condition の timestamp が、その ISU の「仮想現在時刻」より進んだら更新する。
-	// さらに時間帯が変わったときだけ（例: 14台→15台）、閉じた時間帯をキャッシュへ確定する。
-	for jiaIsuUUID, latest := range latestByIsu {
-		newTs := latest.condition.Timestamp
-		oldTs, hasOld := getCachedIsuLatestTimestamp(jiaIsuUUID)
-		if hasOld {
-			oldHour := graphCacheHour(time.Unix(oldTs, 0))
-			newHour := graphCacheHour(time.Unix(newTs, 0))
-			if newHour.After(oldHour) {
-				sealGraphHoursInRange(jiaIsuUUID, oldHour, newHour)
-			}
-		}
-		setCachedIsuLatestCondition(
-			jiaIsuUUID,
-			newTs,
-			latest.condition.IsSitting,
-			latest.condition.Condition,
-			latest.condition.Message,
-		)
-	}
-
-	// 永続化は後ろ。1文の INSERT 自体が原子的で、autocommit ですぐロック解放される。
+	// 加点用メモリ反映は POST ハンドラ側で先行済み。ここは永続化のみ。
 	_, err := db.Exec(
 		"INSERT IGNORE INTO `isu_condition`"+
 			" (`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`) VALUES "+
@@ -351,15 +362,14 @@ func postIsuCondition(c echo.Context) error {
 		conditions: req,
 	}
 
-	// DBコミットは待たず、キュー投入成功時点で202を返す。
-	// JIAクライアントは短いタイムアウトなので、書き込み完了待ちはCLOSE-WAITの原因になりやすい。
-	requestContext := c.Request().Context()
+	// 加点はメモリ先行。キューが詰まっても DB だけ捨てて 202 を即返す（100ms timeout 回避）。
+	applyConditionToMemory(jiaIsuUUID, req)
 	select {
 	case conditionWriterQueue(jiaIsuUUID) <- writeRequest:
-		return c.NoContent(http.StatusAccepted)
-	case <-requestContext.Done():
-		return nil
+	default:
+		// backpressure: 永続化をスキップ（欠損は許容、追試は種データ+受理分で足りる想定）
 	}
+	return c.NoContent(http.StatusAccepted)
 }
 
 // ISUのコンディションの文字列がcsv形式になっているか検証

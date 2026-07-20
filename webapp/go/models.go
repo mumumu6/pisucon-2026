@@ -29,9 +29,10 @@ const (
 	scoreConditionLevelCritical = 1
 	trendCacheTTL               = 400 * time.Millisecond
 	trendCacheMaxAge            = 900 * time.Millisecond
-	conditionBatchMaxRequests   = 256
-	conditionBatchWait          = 2 * time.Millisecond
-	conditionWriterCount        = 8
+	conditionBatchMaxRequests   = 512
+	conditionBatchWait          = 1 * time.Millisecond
+	conditionWriterCount        = 16
+	conditionWriteQueueSize     = 4096
 	graphCacheWarmWorkers       = 8
 )
 
@@ -89,6 +90,9 @@ var (
 
 	// ISU 単位でグラフの read-modify-write を直列化する（seal と GET の競合防止）
 	graphBuildMu sync.Map // map[string]*sync.Mutex
+
+	// ISU 単位でメモリ反映（append / latest / seal）を直列化し timestamp 順を守る
+	conditionApplyMu sync.Map // map[string]*sync.Mutex
 
 	conditionWriteQueues []chan conditionWriteRequest
 )
