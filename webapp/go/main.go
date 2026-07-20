@@ -46,6 +46,7 @@ const (
 	trendCacheMaxAge            = 900 * time.Millisecond
 	conditionBatchMaxRequests   = 64
 	conditionBatchWait          = 5 * time.Millisecond
+	conditionWriterCount        = 4
 )
 
 var (
@@ -77,6 +78,11 @@ var (
 		values map[string]string
 	}{values: make(map[string]string)}
 
+	isuMetadataCache = struct {
+		sync.RWMutex
+		values map[string]isuMetadataCacheEntry
+	}{values: make(map[string]isuMetadataCacheEntry)}
+
 	isuLatestTimestampCache = struct {
 		sync.RWMutex
 		values map[string]int64
@@ -87,12 +93,17 @@ var (
 		values map[string]isuIconCacheEntry
 	}{values: make(map[string]isuIconCacheEntry)}
 
-	conditionWriteQueue chan conditionWriteRequest
+	conditionWriteQueues []chan conditionWriteRequest
 )
 
 type isuIconCacheEntry struct {
 	jiaUserID string
 	image     []byte
+}
+
+type isuMetadataCacheEntry struct {
+	jiaUserID string
+	name      string
 }
 
 type conditionWriteRequest struct {
@@ -408,6 +419,28 @@ func setCachedIsuOwner(jiaIsuUUID, jiaUserID string) {
 	isuOwnerCache.Unlock()
 }
 
+func clearIsuMetadataCache() {
+	isuMetadataCache.Lock()
+	isuMetadataCache.values = make(map[string]isuMetadataCacheEntry)
+	isuMetadataCache.Unlock()
+}
+
+func getCachedIsuMetadata(jiaIsuUUID, jiaUserID string) (string, bool) {
+	isuMetadataCache.RLock()
+	entry, ok := isuMetadataCache.values[jiaIsuUUID]
+	isuMetadataCache.RUnlock()
+	if !ok || entry.jiaUserID != jiaUserID {
+		return "", false
+	}
+	return entry.name, true
+}
+
+func setCachedIsuMetadata(jiaIsuUUID, jiaUserID, name string) {
+	isuMetadataCache.Lock()
+	isuMetadataCache.values[jiaIsuUUID] = isuMetadataCacheEntry{jiaUserID: jiaUserID, name: name}
+	isuMetadataCache.Unlock()
+}
+
 func clearIsuLatestTimestampCache() {
 	isuLatestTimestampCache.Lock()
 	isuLatestTimestampCache.values = make(map[string]int64)
@@ -479,6 +512,7 @@ func postInitialize(c echo.Context) error {
 	}
 	clearIsuExistenceCache()
 	clearIsuOwnerCache()
+	clearIsuMetadataCache()
 	clearIsuLatestTimestampCache()
 	clearIsuIconCache()
 
@@ -605,6 +639,7 @@ func getIsuList(c echo.Context) error {
 	responseList := make([]GetIsuListResponse, 0, len(isuList))
 	for _, isu := range isuList {
 		setCachedIsuOwner(isu.JIAIsuUUID, jiaUserID)
+		setCachedIsuMetadata(isu.JIAIsuUUID, jiaUserID, isu.Name)
 		var formattedCondition *GetIsuConditionResponse
 		if isu.LatestTimestamp.Valid {
 			conditionLevel, err := calculateConditionLevel(isu.LatestCondition.String)
@@ -765,6 +800,7 @@ func postIsu(c echo.Context) error {
 
 	setCachedIsuExistence(jiaIsuUUID, true)
 	setCachedIsuOwner(jiaIsuUUID, jiaUserID)
+	setCachedIsuMetadata(jiaIsuUUID, jiaUserID, isuName)
 	setCachedIsuIcon(jiaIsuUUID, jiaUserID, image)
 
 	return c.JSON(http.StatusCreated, isu)
@@ -798,6 +834,7 @@ func getIsuID(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	setCachedIsuOwner(jiaIsuUUID, jiaUserID)
+	setCachedIsuMetadata(jiaIsuUUID, jiaUserID, res.Name)
 
 	return c.JSON(http.StatusOK, res)
 }
@@ -1088,18 +1125,22 @@ func getIsuConditions(c echo.Context) error {
 		startTime = time.Unix(startTimeInt64, 0)
 	}
 
-	var isuName string
-	err = db.Get(&isuName,
-		"SELECT name FROM `isu` WHERE `jia_isu_uuid` = ? AND `jia_user_id` = ?",
-		jiaIsuUUID, jiaUserID,
-	)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return c.String(http.StatusNotFound, "not found: isu")
-		}
+	isuName, cached := getCachedIsuMetadata(jiaIsuUUID, jiaUserID)
+	if !cached {
+		err = db.Get(&isuName,
+			"SELECT name FROM `isu` WHERE `jia_isu_uuid` = ? AND `jia_user_id` = ?",
+			jiaIsuUUID, jiaUserID,
+		)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return c.String(http.StatusNotFound, "not found: isu")
+			}
 
-		c.Logger().Errorf("db error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
+			c.Logger().Errorf("db error: %v", err)
+			return c.NoContent(http.StatusInternalServerError)
+		}
+		setCachedIsuOwner(jiaIsuUUID, jiaUserID)
+		setCachedIsuMetadata(jiaIsuUUID, jiaUserID, isuName)
 	}
 
 	conditionsResponse, err := getIsuConditionsFromDB(db, jiaIsuUUID, endTime, conditionLevel, startTime, conditionLimit, isuName)
@@ -1127,12 +1168,14 @@ func getIsuConditionsFromDB(db *sqlx.DB, jiaIsuUUID string, endTime time.Time, c
 		args = append(args, startTime)
 	}
 
-	placeholders := strings.TrimRight(strings.Repeat("?,", len(allowedConditions)), ",")
-	query += "	AND `condition` IN (" + placeholders + ")" +
-		"	ORDER BY `timestamp` DESC LIMIT ?"
-	for _, condition := range allowedConditions {
-		args = append(args, condition)
+	if len(allowedConditions) < 8 {
+		placeholders := strings.TrimRight(strings.Repeat("?,", len(allowedConditions)), ",")
+		query += "	AND `condition` IN (" + placeholders + ")"
+		for _, condition := range allowedConditions {
+			args = append(args, condition)
+		}
 	}
+	query += "	ORDER BY `timestamp` DESC LIMIT ?"
 	args = append(args, limit)
 
 	err := db.Select(&conditions, query, args...)
@@ -1351,18 +1394,21 @@ func reverseTrendResponses(trends []*TrendResponse) {
 }
 
 func startConditionWriter() {
-	conditionWriteQueue = make(chan conditionWriteRequest, 4096)
-	go conditionWriter()
+	conditionWriteQueues = make([]chan conditionWriteRequest, conditionWriterCount)
+	for i := range conditionWriteQueues {
+		conditionWriteQueues[i] = make(chan conditionWriteRequest, 1024)
+		go conditionWriter(conditionWriteQueues[i])
+	}
 }
 
-func conditionWriter() {
-	for first := range conditionWriteQueue {
+func conditionWriter(queue <-chan conditionWriteRequest) {
+	for first := range queue {
 		batch := []conditionWriteRequest{first}
 		timer := time.NewTimer(conditionBatchWait)
 	collect:
 		for len(batch) < conditionBatchMaxRequests {
 			select {
-			case request := <-conditionWriteQueue:
+			case request := <-queue:
 				batch = append(batch, request)
 			case <-timer.C:
 				break collect
@@ -1380,6 +1426,17 @@ func conditionWriter() {
 			request.done <- err
 		}
 	}
+}
+
+func conditionWriterQueue(jiaIsuUUID string) chan conditionWriteRequest {
+	// 同じISUは常に同じwriterへ送り、到着順に処理する。
+	// これによりwriter間で同じisu行を競合させない。
+	hash := uint32(2166136261)
+	for i := 0; i < len(jiaIsuUUID); i++ {
+		hash ^= uint32(jiaIsuUUID[i])
+		hash *= 16777619
+	}
+	return conditionWriteQueues[int(hash%conditionWriterCount)]
 }
 
 func writeConditionBatch(batch []conditionWriteRequest) error {
@@ -1558,7 +1615,7 @@ func postIsuCondition(c echo.Context) error {
 	// 投入済みの書き込みはwriterに任せ、切断済みのHTTP handlerだけを返す。
 	requestContext := c.Request().Context()
 	select {
-	case conditionWriteQueue <- writeRequest:
+	case conditionWriterQueue(jiaIsuUUID) <- writeRequest:
 	case <-requestContext.Done():
 		return nil
 	}
