@@ -5,13 +5,22 @@ remote_project_root: /home/isucon
 remote_log_root: /home/isucon/log
 app_working_dir: /home/isucon/webapp/go
 frontend_public_dir: /home/isucon/webapp/public
-nginx_site_name: isucondition
 nginx_listen_port: 80
+nginx_https_port: 443
 nginx_app_port: 3000
 nginx_worker_connections: 65535
 nginx_limit_nofile: 65535
 nginx_client_body_buffer_size: 256k
-# 現在はappとnginxが同一ホストなので、パブリックIPへの折り返しを避ける。
+nginx_client_max_body_size: 16m
+nginx_upstream_keepalive: 128
+nginx_keepalive_timeout: 65
+nginx_keepalive_requests: 10000
+# true なら自己署名証明書で :443 + HTTP/2 も聞く。ベンチが HTTP :80 のみなら false でよい。
+nginx_enable_https: true
+nginx_ssl_dir: /etc/nginx/ssl
+nginx_ssl_certificate: /etc/nginx/ssl/nginx.crt
+nginx_ssl_certificate_key: /etc/nginx/ssl/nginx.key
+# app と nginx が同一ホストなら 127.0.0.1。分離構成なら app のプライベートIPへ。
 nginx_app_backend_host: 127.0.0.1
 
 git_repository: git@github.com:mumumu6/pisucon-2026.git

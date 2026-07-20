@@ -133,21 +133,22 @@
       notify: Nginxを再起動する
       when: inventory_hostname in groups['nginx']
 
-    - name: Nginxへ静的配信とAPIプロキシの設定を配置する
-      ansible.builtin.template:
-        src: templates/isucondition.nginx.conf.j2
-        dest: "/etc/nginx/sites-available/{{ nginx_site_name }}.conf"
-        owner: root
-        group: root
-        mode: "0644"
+    - name: Nginxのworker_rlimit_nofileを設定する
+      ansible.builtin.lineinfile:
+        path: /etc/nginx/nginx.conf
+        regexp: '^\s*worker_rlimit_nofile\s+'
+        line: "worker_rlimit_nofile {{ nginx_limit_nofile }};"
+        insertafter: '^worker_processes'
       notify: Nginxを再起動する
       when: inventory_hostname in groups['nginx']
 
-    - name: Nginxサイトを有効化する
-      ansible.builtin.file:
-        src: "/etc/nginx/sites-available/{{ nginx_site_name }}.conf"
-        dest: "/etc/nginx/sites-enabled/{{ nginx_site_name }}.conf"
-        state: link
+    - name: Nginxのサイト設定を追加する
+      ansible.builtin.template:
+        src: templates/nginx.isucondition.conf.j2
+        dest: /etc/nginx/conf.d/isucondition.conf
+        owner: root
+        group: root
+        mode: "0644"
       notify: Nginxを再起動する
       when: inventory_hostname in groups['nginx']
 
@@ -156,6 +157,49 @@
         path: /etc/nginx/sites-enabled/default
         state: absent
       notify: Nginxを再起動する
+      when: inventory_hostname in groups['nginx']
+
+    - name: NginxのSSL証明書ディレクトリを作る
+      ansible.builtin.file:
+        path: "{{ nginx_ssl_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when:
+        - inventory_hostname in groups['nginx']
+        - nginx_enable_https | bool
+
+    - name: Nginxの自己署名証明書を作る
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - req
+          - -x509
+          - -nodes
+          - -newkey
+          - rsa:2048
+          - -days
+          - "3650"
+          - -keyout
+          - "{{ nginx_ssl_certificate_key }}"
+          - -out
+          - "{{ nginx_ssl_certificate }}"
+          - -subj
+          - /CN=nginx
+      args:
+        creates: "{{ nginx_ssl_certificate }}"
+      notify: Nginxを再起動する
+      when:
+        - inventory_hostname in groups['nginx']
+        - nginx_enable_https | bool
+
+    - name: Nginx設定を検証する
+      ansible.builtin.command:
+        argv:
+          - nginx
+          - -t
+      changed_when: false
       when: inventory_hostname in groups['nginx']
 
     - name: Nginxを起動・自動起動にする
