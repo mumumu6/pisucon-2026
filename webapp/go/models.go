@@ -29,19 +29,18 @@ const (
 	scoreConditionLevelWarning  = 2
 	scoreConditionLevelCritical = 1
 	// trend TTL 配分（initialize 起点）
-	// 仮説: 序盤短く母数 → 10s以降は一気に長くして後半の加点を厚くする。
-	// （前回の序盤短縮は中盤が短すぎて GraphGood が落ちた）
+	// 実測ベスト 3.58M。短序盤+長後半(3.43M)は前半ほぼ同じで後半だけ負けた。
 	// 0-5s / 5-10s / 10-25s / 25-45s / 45s-
-	trendTTL0                   = 1000 * time.Millisecond
-	trendMaxAge0                = 1300 * time.Millisecond
-	trendTTL1                   = 1500 * time.Millisecond
-	trendMaxAge1                = 1800 * time.Millisecond
-	trendTTL2                   = 4000 * time.Millisecond
-	trendMaxAge2                = 4500 * time.Millisecond
-	trendTTL3                   = 5500 * time.Millisecond
-	trendMaxAge3                = 6000 * time.Millisecond
-	trendTTL4                   = 7000 * time.Millisecond
-	trendMaxAge4                = 7500 * time.Millisecond
+	trendTTL0                   = 500 * time.Millisecond
+	trendMaxAge0                = 1800 * time.Millisecond
+	trendTTL1                   = 2200 * time.Millisecond
+	trendMaxAge1                = 2500 * time.Millisecond
+	trendTTL2                   = 3000 * time.Millisecond
+	trendMaxAge2                = 3500 * time.Millisecond
+	trendTTL3                   = 4000 * time.Millisecond
+	trendMaxAge3                = 4500 * time.Millisecond
+	trendTTL4                   = 5500 * time.Millisecond
+	trendMaxAge4                = 6000 * time.Millisecond
 	trendPhaseUntil0            = 5 * time.Second
 	trendPhaseUntil1            = 10 * time.Second
 	trendPhaseUntil2            = 25 * time.Second
