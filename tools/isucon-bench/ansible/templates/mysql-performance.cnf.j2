@@ -13,11 +13,16 @@ log_output = FILE
 
 [mariadb]
 innodb_flush_log_at_trx_commit = {{ mysql_innodb_flush_log_at_trx_commit }}
+{% if mysql_skip_log_bin | default(false) %}
+skip-log-bin
+{% else %}
 sync_binlog = {{ mysql_sync_binlog }}
+{% endif %}
 
 innodb_buffer_pool_size = {{ mysql_innodb_buffer_pool_size }}
 innodb_buffer_pool_instances = {{ mysql_innodb_buffer_pool_instances }}
 innodb_log_buffer_size = {{ mysql_innodb_log_buffer_size }}
+innodb_log_file_size = {{ mysql_innodb_log_file_size }}
 innodb_flush_method = {{ mysql_innodb_flush_method }}
 innodb_io_capacity = {{ mysql_innodb_io_capacity }}
 innodb_io_capacity_max = {{ mysql_innodb_io_capacity_max }}

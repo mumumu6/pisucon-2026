@@ -60,7 +60,9 @@ slow_log: /var/log/mysql/mariadb-slow.log
 # COMMIT時にredoログを毎回fsyncしない(2)。耐久性より速度優先。
 # OS/電源断時は直近およそ1秒分の更新が失われる可能性がある。
 mysql_innodb_flush_log_at_trx_commit: 2
-# バイナリログをCOMMITごとにディスク同期しない。同様に速度優先。
+# バイナリログ自体を切る（レプリカ無し）。I/OとCPUをINSERTから外す。
+mysql_skip_log_bin: true
+# skip-log-bin 時は無視されるが、残しておく。
 mysql_sync_binlog: 0
 # InnoDBがデータ/インデックスを載せるメインキャッシュ。
 # DB専用化したので 2G まで引き上げる。
@@ -71,6 +73,8 @@ mysql_innodb_buffer_pool_instances: 2
 # トランザクションのredoを書く前のメモリバッファ。
 # 大きなバッチINSERTで、ログを頻繁にディスクへ押し出す回数を減らす。
 mysql_innodb_log_buffer_size: 64M
+# redoログファイルサイズ。大きいほどcheckpoint頻度が下がる（再起動時に反映）。
+mysql_innodb_log_file_size: 512M
 # InnoDBのデータファイルI/OをOSページキャッシュ経由にしない。
 # buffer pool を大きくしたときの二重キャッシュを避ける。
 mysql_innodb_flush_method: O_DIRECT

@@ -5,11 +5,14 @@ all:
     app:
       hosts:
         isucon-1:
+          # 公開IPと private が食い違っていたので実機に合わせて修正
+          # 52.195.6.219 = 10.0.0.202 (app)
           ansible_host: 52.195.6.219
           private_ip: 10.0.0.202
     db:
       hosts:
         isucon-2:
+          # 13.193.217.22 = 10.0.0.121 (db, MYSQL_HOST)
           ansible_host: 13.193.217.22
           private_ip: 10.0.0.121
     nginx:
