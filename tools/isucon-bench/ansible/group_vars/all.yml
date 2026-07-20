@@ -88,10 +88,9 @@ mysql_remote_grant_sql: >-
   GRANT ALL PRIVILEGES ON *.* TO 'isucon'@'%' WITH GRANT OPTION;
   FLUSH PRIVILEGES;
 # BLOBを含む実SQLは出力せず、集計表だけをレポートへ残す。
-pt_query_digest_timeout_seconds: 120
-pt_query_digest_options:
-  - --report-format
-  - profile
+pt_query_digest_timeout_seconds: 180
+# 空ならフルレポート（Query例つき）。重いときだけ --report-format profile を足す。
+pt_query_digest_options: []
 
 # Goプロファイリング。待受先はlocalhostに限定します。
 pprof_url: http://127.0.0.1:6060/debug/pprof/profile
