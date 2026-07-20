@@ -8,16 +8,9 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/labstack/gommon/log"
-)
-
-var (
-	conditionMemEnqueued uint64
-	conditionMemDropped  uint64
 )
 
 // ISUのコンディションを取得
@@ -131,69 +124,87 @@ func calculateConditionLevel(condition string) (string, error) {
 // GET /api/trend
 
 func startConditionWriter() {
-	conditionMemQueues = make([]chan conditionWriteRequest, conditionWriterCount)
+	conditionMemShards = make([]*conditionMemShard, conditionWriterCount)
 	for i := 0; i < conditionWriterCount; i++ {
-		conditionMemQueues[i] = make(chan conditionWriteRequest, conditionWriteQueueSize)
-		go conditionMemWriter(conditionMemQueues[i])
-	}
-	go reportConditionMemQueueStats()
-}
-
-func reportConditionMemQueueStats() {
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-	var lastEnqueued, lastDropped uint64
-	for range ticker.C {
-		enqueued := atomic.LoadUint64(&conditionMemEnqueued)
-		dropped := atomic.LoadUint64(&conditionMemDropped)
-		dEnqueued := enqueued - lastEnqueued
-		dDropped := dropped - lastDropped
-		lastEnqueued, lastDropped = enqueued, dropped
-		if dDropped == 0 && dEnqueued == 0 {
-			continue
+		s := &conditionMemShard{
+			q:    make([]conditionWriteRequest, 0, 64),
+			wake: make(chan struct{}, 1),
 		}
-		total := dEnqueued + dDropped
-		pct := 0.0
-		if total > 0 {
-			pct = 100 * float64(dDropped) / float64(total)
-		}
-		log.Warnf("condition mem queue: +enqueued=%d +dropped=%d (%.2f%%) total_dropped=%d",
-			dEnqueued, dDropped, pct, dropped)
+		conditionMemShards[i] = s
+		go conditionMemWriter(s)
 	}
 }
 
-func collectConditionBatch(queue <-chan conditionWriteRequest, first conditionWriteRequest) []conditionWriteRequest {
-	batch := []conditionWriteRequest{first}
-	timer := time.NewTimer(conditionBatchWait)
-collect:
-	for len(batch) < conditionBatchMaxRequests {
-		select {
-		case request := <-queue:
-			batch = append(batch, request)
-		case <-timer.C:
-			break collect
-		}
+func (s *conditionMemShard) enqueue(req conditionWriteRequest) {
+	s.mu.Lock()
+	s.q = append(s.q, req)
+	s.mu.Unlock()
+	select {
+	case s.wake <- struct{}{}:
+	default:
 	}
-	if !timer.Stop() {
-		select {
-		case <-timer.C:
-		default:
-		}
+}
+
+func (s *conditionMemShard) takeBatch(max int) []conditionWriteRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.q) == 0 {
+		return nil
+	}
+	n := len(s.q)
+	if n > max {
+		n = max
+	}
+	batch := append([]conditionWriteRequest(nil), s.q[:n]...)
+	s.q = s.q[n:]
+	if len(s.q) == 0 {
+		s.q = s.q[:0]
 	}
 	return batch
 }
 
+func (s *conditionMemShard) pending() int {
+	s.mu.Lock()
+	n := len(s.q)
+	s.mu.Unlock()
+	return n
+}
+
 // conditionMemWriter は同一 shard を FIFO でメモリ反映する（HTTP 並列でも順序を守る）。
 // ベンチ中の GET はメモリ参照のみなので DB 永続化はしない（IO/CPU を GET に回す）。
-func conditionMemWriter(memQueue <-chan conditionWriteRequest) {
-	for first := range memQueue {
-		batch := collectConditionBatch(memQueue, first)
-		applyConditionMemoryBatch(batch)
+func conditionMemWriter(s *conditionMemShard) {
+	for range s.wake {
+		for {
+			batch := s.takeBatch(conditionBatchMaxRequests)
+			if len(batch) == 0 {
+				break
+			}
+			// 短時間待って同 shard の続きをまとめる
+			if len(batch) < conditionBatchMaxRequests {
+				timer := time.NewTimer(conditionBatchWait)
+				select {
+				case <-s.wake:
+					if !timer.Stop() {
+						select {
+						case <-timer.C:
+						default:
+						}
+					}
+					more := s.takeBatch(conditionBatchMaxRequests - len(batch))
+					batch = append(batch, more...)
+				case <-timer.C:
+				}
+			}
+			applyConditionMemoryBatch(batch)
+			if s.pending() == 0 {
+				break
+			}
+		}
 	}
 }
 
-func conditionMemQueue(jiaIsuUUID string) chan conditionWriteRequest {
-	return conditionMemQueues[conditionShardIndex(jiaIsuUUID)]
+func enqueueConditionMemory(jiaIsuUUID string, req conditionWriteRequest) {
+	conditionMemShards[conditionShardIndex(jiaIsuUUID)].enqueue(req)
 }
 
 func conditionShardIndex(jiaIsuUUID string) int {
@@ -293,13 +304,8 @@ func postIsuCondition(c echo.Context) error {
 		conditions: req,
 	}
 
-	// メモリ用 FIFO キューへ非ブロッキング投入。満杯なら捨てて 202（減点なし）。
-	select {
-	case conditionMemQueue(jiaIsuUUID) <- writeRequest:
-		atomic.AddUint64(&conditionMemEnqueued, 1)
-	default:
-		atomic.AddUint64(&conditionMemDropped, 1)
-	}
+	// 即 202。メモリ反映は shard writer が非同期で行う（捨てない）。
+	enqueueConditionMemory(jiaIsuUUID, writeRequest)
 	return c.NoContent(http.StatusAccepted)
 }
 

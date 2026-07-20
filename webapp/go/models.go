@@ -48,7 +48,6 @@ const (
 	conditionBatchMaxRequests   = 512
 	conditionBatchWait          = 1 * time.Millisecond
 	conditionWriterCount        = 128
-	conditionWriteQueueSize     = 4096
 	graphCacheWarmWorkers       = 8
 )
 
@@ -141,9 +140,16 @@ var (
 		values map[string]openHourGraphCacheEntry
 	}{values: make(map[string]openHourGraphCacheEntry)}
 
-	// 同一 ISU は同じ shard。mem は FIFO で加点反映、db は後続永続化。
-	conditionMemQueues []chan conditionWriteRequest
+	// 同一 ISU は同じ shard。enqueue は非ブロッキング、反映は writer が FIFO で行う。
+	conditionMemShards []*conditionMemShard
 )
+
+// conditionMemShard は POST を即受けて、裏でメモリ反映する。
+type conditionMemShard struct {
+	mu   sync.Mutex
+	q    []conditionWriteRequest
+	wake chan struct{} // cap 1
+}
 
 type graphCacheEntry struct {
 	response []GraphResponse

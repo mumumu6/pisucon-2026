@@ -63,6 +63,10 @@ func getIsuGraph(c echo.Context) error {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	// seal で jsonBody が載った直後は再取得（二重 Marshal を避ける）
+	if body, ok := getCachedGraphJSON(jiaIsuUUID, date); ok {
+		return c.JSONBlob(http.StatusOK, body)
+	}
 	body, err := jsonFast.Marshal(res)
 	if err != nil {
 		c.Logger().Error(err)
@@ -95,22 +99,24 @@ func isuVirtualNow(jiaIsuUUID string) (time.Time, bool) {
 	return time.Unix(ts, 0).In(graphCacheLocation), true
 }
 
-// graphBuildRW は ISU ごとの RWMutex を返す。
-func graphBuildRW(jiaIsuUUID string) *sync.RWMutex {
-	v, _ := graphBuildMu.LoadOrStore(jiaIsuUUID, &sync.RWMutex{})
+// graphBuildRW は ISU×日 ごとの RWMutex を返す。
+// 日単位にすることで、seal 中でも他日の GET を止めない。
+func graphBuildRW(jiaIsuUUID string, day time.Time) *sync.RWMutex {
+	key := jiaIsuUUID + "\x00" + strconv.FormatInt(graphCacheDay(day).Unix(), 10)
+	v, _ := graphBuildMu.LoadOrStore(key, &sync.RWMutex{})
 	return v.(*sync.RWMutex)
 }
 
 // lockGraphBuild は seal / キャッシュ更新用の排他ロック。
-func lockGraphBuild(jiaIsuUUID string) func() {
-	mu := graphBuildRW(jiaIsuUUID)
+func lockGraphBuild(jiaIsuUUID string, day time.Time) func() {
+	mu := graphBuildRW(jiaIsuUUID, day)
 	mu.Lock()
 	return mu.Unlock
 }
 
 // rlockGraphBuild は組み立て済みキャッシュを読むだけの共有ロック。
-func rlockGraphBuild(jiaIsuUUID string) func() {
-	mu := graphBuildRW(jiaIsuUUID)
+func rlockGraphBuild(jiaIsuUUID string, day time.Time) func() {
+	mu := graphBuildRW(jiaIsuUUID, day)
 	mu.RLock()
 	return mu.RUnlock
 }
@@ -124,7 +130,7 @@ func getIsuGraphResponse(jiaIsuUUID string, date time.Time) ([]GraphResponse, er
 	dayEnd := date.Add(24 * time.Hour)
 	virtualNow, ok := isuVirtualNow(jiaIsuUUID)
 	if !ok {
-		unlock := lockGraphBuild(jiaIsuUUID)
+		unlock := lockGraphBuild(jiaIsuUUID, date)
 		defer unlock()
 		res := generateIsuGraphDayFromMem(jiaIsuUUID, date)
 		setCachedGraph(jiaIsuUUID, date, res, dayEnd)
@@ -151,7 +157,7 @@ func getIsuGraphResponse(jiaIsuUUID string, date time.Time) ([]GraphResponse, er
 	}
 
 	// すでに seal 済みなら RLock だけで返す（同一 ISU の複数日 GET を並列化）
-	unlockR := rlockGraphBuild(jiaIsuUUID)
+	unlockR := rlockGraphBuild(jiaIsuUUID, date)
 	entry, cached := getCachedGraphEntry(jiaIsuUUID, date)
 	sealedThrough := date
 	var res []GraphResponse
@@ -170,7 +176,7 @@ func getIsuGraphResponse(jiaIsuUUID string, date time.Time) ([]GraphResponse, er
 	}
 	unlockR()
 
-	unlock := lockGraphBuild(jiaIsuUUID)
+	unlock := lockGraphBuild(jiaIsuUUID, date)
 	defer unlock()
 
 	entry, cached = getCachedGraphEntry(jiaIsuUUID, date)
@@ -352,13 +358,17 @@ func generateIsuGraphDayFromMem(jiaIsuUUID string, graphDate time.Time) []GraphR
 }
 
 // sealGraphHoursInRange は [fromHour, toHour) をグラフキャッシュに確定する。
+// 日単位ロックなので、他日の GraphGood GET をブロックしない。
 func sealGraphHoursInRange(jiaIsuUUID string, fromHour, toHour time.Time) {
-	unlock := lockGraphBuild(jiaIsuUUID)
-	defer unlock()
-
-	for hourStart := fromHour; hourStart.Before(toHour); hourStart = hourStart.Add(time.Hour) {
+	for hourStart := fromHour; hourStart.Before(toHour); {
 		day := graphCacheDay(hourStart)
 		dayEnd := day.Add(24 * time.Hour)
+		rangeEnd := toHour
+		if dayEnd.Before(rangeEnd) {
+			rangeEnd = dayEnd
+		}
+
+		unlock := lockGraphBuild(jiaIsuUUID, day)
 		entry, ok := getCachedGraphEntry(jiaIsuUUID, day)
 		var res []GraphResponse
 		sealedThrough := day
@@ -371,21 +381,19 @@ func sealGraphHoursInRange(jiaIsuUUID string, fromHour, toHour time.Time) {
 		} else {
 			res = emptyGraphDay(day)
 		}
-		next := hourStart.Add(time.Hour)
-		if !sealedThrough.Before(next) {
-			continue
+
+		if sealedThrough.Before(rangeEnd) {
+			for h := sealedThrough; h.Before(rangeEnd); h = h.Add(time.Hour) {
+				idx := int(h.Sub(day) / time.Hour)
+				if idx >= 0 && idx < 24 {
+					res[idx] = generateIsuGraphHour(jiaIsuUUID, h)
+				}
+			}
+			sealedThrough = rangeEnd
+			setCachedGraph(jiaIsuUUID, day, res, sealedThrough)
 		}
-		for h := sealedThrough; h.Before(next) && h.Before(dayEnd); h = h.Add(time.Hour) {
-			idx := int(h.Sub(day) / time.Hour)
-			res[idx] = generateIsuGraphHour(jiaIsuUUID, h)
-		}
-		if next.After(sealedThrough) {
-			sealedThrough = next
-		}
-		if sealedThrough.After(dayEnd) {
-			sealedThrough = dayEnd
-		}
-		setCachedGraph(jiaIsuUUID, day, res, sealedThrough)
+		unlock()
+		hourStart = rangeEnd
 	}
 }
 
