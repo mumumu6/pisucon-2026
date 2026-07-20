@@ -6,9 +6,12 @@ all:
       hosts:
         isucon-1:
           ansible_host: 18.183.138.21
+          private_ip: 10.0.0.202
     db:
       hosts:
-        isucon-1:
+        isucon-2:
+          ansible_host: 43.207.142.227
+          private_ip: 10.0.0.121
     nginx:
       hosts:
         isucon-1:

@@ -19,11 +19,32 @@ git_version: main
 git_user_name: mumumu6
 git_user_email: takumu.sato@gmail.com
 
+# GitHub用デプロイ鍵（秘密鍵はGit管理しない。files/ は .gitignore 済み）
+github_ssh_private_key_src: "{{ playbook_dir }}/files/github_id_ed25519"
+github_ssh_public_key_src: "{{ playbook_dir }}/files/github_id_ed25519.pub"
+github_ssh_identity_file: /home/isucon/.ssh/id_ed25519
+# ssh-keyscan -t rsa,ecdsa,ed25519 github.com
+github_ssh_known_hosts: |
+  github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+  github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
+  github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
+
 # アプリ固有の操作。
 build_command: go build -o isucondition .
 restart_command: sudo systemctl restart isucondition.go.service
 app_service: isucondition.go.service
 app_limit_nofile: 65535
+
+# inventory のグループ所属で「そのホストで動かすサービス」を決める。
+# 1台構成なら全グループに同じホストを入れれば全部起動、分割なら所属分だけ起動。
+fleet_services:
+  - name: "{{ app_service }}"
+    roles: [app]
+  - name: nginx
+    roles: [nginx]
+  - name: "{{ mysql_service }}"
+    roles: [db]
+
 
 # ログと解析ツール。
 access_log: /var/log/nginx/access.log
@@ -34,7 +55,7 @@ mysql_service: mariadb
 mysql_slow_query_time: 0
 slow_log: /var/log/mysql/mariadb-slow.log
 # --- MariaDB性能設定 (make mysql-tune で反映、再起動あり) ---
-# isucon-1 目安: メモリ約3.6GB・NVMe・アプリ同居。
+# DB専用 (isucon-2, メモリ約3.6GB・NVMe) 向け。
 #
 # COMMIT時にredoログを毎回fsyncしない(2)。耐久性より速度優先。
 # OS/電源断時は直近およそ1秒分の更新が失われる可能性がある。
@@ -42,12 +63,11 @@ mysql_innodb_flush_log_at_trx_commit: 2
 # バイナリログをCOMMITごとにディスク同期しない。同様に速度優先。
 mysql_sync_binlog: 0
 # InnoDBがデータ/インデックスを載せるメインキャッシュ。
-# ここが大きいとSELECTのディスク読みとINSERT時のページI/Oが減る。
-# アプリ同居のため全メモリは使わず1G程度に抑える(デフォルトは128MB)。
-mysql_innodb_buffer_pool_size: 1G
+# DB専用化したので 2G まで引き上げる。
+mysql_innodb_buffer_pool_size: 2G
 # buffer pool の分割数。内部ロック競合を分散する用途。
-# 目安はだいたい1インスタンス≒1GBなので、1Gなら1でよい。
-mysql_innodb_buffer_pool_instances: 1
+# 目安はだいたい1インスタンス≒1GB。
+mysql_innodb_buffer_pool_instances: 2
 # トランザクションのredoを書く前のメモリバッファ。
 # 大きなバッチINSERTで、ログを頻繁にディスクへ押し出す回数を減らす。
 mysql_innodb_log_buffer_size: 64M
@@ -59,6 +79,14 @@ mysql_innodb_flush_method: O_DIRECT
 mysql_innodb_io_capacity: 2000
 # 上記の上限。負荷が高いときにどこまで書き出せるか。
 mysql_innodb_io_capacity_max: 4000
+# 他ホストのアプリから繋ぐため 0.0.0.0 で待受。接続先自体はリポジトリの env.sh。
+mysql_bind_address: "0.0.0.0"
+mysql_max_connections: 1000
+# cnf では書けない権限。isucon@localhost だけではリモート接続できない。
+mysql_remote_grant_sql: >-
+  CREATE USER IF NOT EXISTS 'isucon'@'%' IDENTIFIED BY 'isucon';
+  GRANT ALL PRIVILEGES ON *.* TO 'isucon'@'%' WITH GRANT OPTION;
+  FLUSH PRIVILEGES;
 # BLOBを含む実SQLは出力せず、集計表だけをレポートへ残す。
 pt_query_digest_options:
   - --report-format

@@ -1,13 +1,19 @@
 # Ansibleで管理: tools/isucon-bench/ansible/group_vars/all.yml
-# OSまたは電源の異常終了時、直近およそ1秒の書き込みが失われる可能性があります。
+# OSまたは電源の異常終了時、直近およそ1秒分の書き込みが失われる可能性があります。
+#
+# bind-address は 50-server.cnf の 127.0.0.1 を上書きする（ファイル名 99- で後勝ち）。
+# これがないと他ホストのアプリから 3306 に繋がらない。
+[mysqld]
+bind-address = {{ mysql_bind_address }}
+
 [mariadb]
 innodb_flush_log_at_trx_commit = {{ mysql_innodb_flush_log_at_trx_commit }}
 sync_binlog = {{ mysql_sync_binlog }}
 
-# 同一ホスト(アプリ同居)・メモリ約3.6GB向け。デフォルト128MBからの引き上げ。
 innodb_buffer_pool_size = {{ mysql_innodb_buffer_pool_size }}
 innodb_buffer_pool_instances = {{ mysql_innodb_buffer_pool_instances }}
 innodb_log_buffer_size = {{ mysql_innodb_log_buffer_size }}
 innodb_flush_method = {{ mysql_innodb_flush_method }}
 innodb_io_capacity = {{ mysql_innodb_io_capacity }}
 innodb_io_capacity_max = {{ mysql_innodb_io_capacity_max }}
+max_connections = {{ mysql_max_connections }}

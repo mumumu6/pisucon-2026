@@ -22,7 +22,31 @@
           values in group_vars/all.yml.
 
   tasks:
-    - name: リポジトリを初回cloneまたは最新化する
+    # /home/isucon はホーム直下なので、非空ディレクトリへの初回cloneは失敗する。
+    # 初期イメージで .git が無いホストは init してから同じ同期パスに乗せる。
+    - name: リポジトリの.git有無を確認する
+      ansible.builtin.stat:
+        path: "{{ remote_project_root }}/.git"
+      register: project_git_dir
+
+    - name: .gitが無いホストでリポジトリを初期化する
+      ansible.builtin.shell: |
+        set -euo pipefail
+        git init
+        if git remote get-url origin >/dev/null 2>&1; then
+          git remote set-url origin "{{ git_repository }}"
+        else
+          git remote add origin "{{ git_repository }}"
+        fi
+        git fetch --depth=1 origin "{{ git_version }}"
+        # 初期イメージの webapp/ 等が untracked で残っているので強制上書きする
+        git checkout -f -B "{{ git_version }}" FETCH_HEAD
+      args:
+        chdir: "{{ remote_project_root }}"
+        executable: /bin/bash
+      when: not project_git_dir.stat.exists
+
+    - name: リポジトリを最新化する
       ansible.builtin.git:
         repo: "{{ git_repository }}"
         dest: "{{ remote_project_root }}"

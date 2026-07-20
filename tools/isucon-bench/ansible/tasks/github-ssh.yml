@@ -1,0 +1,63 @@
+---
+# 全ホストへ GitHub 用デプロイ鍵を配る。秘密鍵は Git 管理せず、
+# 制御ノードの ansible/files/ に置いたものを源にする。
+- name: GitHub用SSH鍵の源ファイルを確認する
+  ansible.builtin.stat:
+    path: "{{ github_ssh_private_key_src }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: github_ssh_private_key_stat
+
+- name: GitHub用SSH鍵の源が無いときは失敗する
+  ansible.builtin.assert:
+    that:
+      - github_ssh_private_key_stat.stat.exists
+    fail_msg: >-
+      {{ github_ssh_private_key_src }} がありません。
+      isucon-1 など鍵があるホストから次でコピーしてください:
+      scp isucon@<host>:~/.ssh/id_ed25519 {{ github_ssh_private_key_src }}
+      scp isucon@<host>:~/.ssh/id_ed25519.pub {{ github_ssh_public_key_src }}
+  run_once: true
+
+- name: isuconユーザーの.sshディレクトリを作る
+  ansible.builtin.file:
+    path: /home/isucon/.ssh
+    state: directory
+    owner: isucon
+    group: isucon
+    mode: "0700"
+
+- name: GitHub用秘密鍵を配置する
+  ansible.builtin.copy:
+    src: "{{ github_ssh_private_key_src }}"
+    dest: "{{ github_ssh_identity_file }}"
+    owner: isucon
+    group: isucon
+    mode: "0600"
+
+- name: GitHub用公開鍵を配置する
+  ansible.builtin.copy:
+    src: "{{ github_ssh_public_key_src }}"
+    dest: "{{ github_ssh_identity_file }}.pub"
+    owner: isucon
+    group: isucon
+    mode: "0644"
+
+- name: GitHub用SSH configを配置する
+  ansible.builtin.template:
+    src: templates/ssh-github.config.j2
+    dest: /home/isucon/.ssh/config
+    owner: isucon
+    group: isucon
+    mode: "0644"
+
+- name: github.comをknown_hostsへ登録する
+  ansible.builtin.blockinfile:
+    path: /home/isucon/.ssh/known_hosts
+    create: true
+    owner: isucon
+    group: isucon
+    mode: "0644"
+    marker: "# {mark} ANSIBLE MANAGED github.com"
+    block: "{{ github_ssh_known_hosts }}"

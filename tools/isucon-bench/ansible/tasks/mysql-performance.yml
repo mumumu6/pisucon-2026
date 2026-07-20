@@ -1,9 +1,17 @@
 ---
-- name: MariaDBのCOMMIT性能設定を配置する
+- name: MariaDBの性能・待ち受け設定を配置する
   ansible.builtin.template:
-    src: mysql-performance.cnf.j2
+    src: templates/mysql-performance.cnf.j2
     dest: /etc/mysql/mariadb.conf.d/99-isucon-performance.cnf
     owner: root
     group: root
     mode: "0644"
   notify: MariaDBを再起動する
+
+# cnf ではユーザー権限は書けない。初期は isucon@localhost だけなのでリモート用を作る。
+- name: アプリからのリモート接続用ユーザーを許可する
+  ansible.builtin.command:
+    argv:
+      - "{{ mysql_admin_command }}"
+      - --execute={{ mysql_remote_grant_sql }}
+  changed_when: true
