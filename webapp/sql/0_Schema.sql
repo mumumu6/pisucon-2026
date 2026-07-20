@@ -18,6 +18,9 @@ CREATE TABLE `isu` (
 ) ENGINE=InnoDB DEFAULT CHARACTER SET=utf8mb4;
 
 CREATE TABLE `isu_condition` (
+  -- 初期データの VALUES が id 付きなので列は残す。PK/INDEX には使わない。
+  -- アプリの INSERT は id を渡さないので NULL 可。
+  `id` bigint DEFAULT NULL,
   `jia_isu_uuid` CHAR(36) NOT NULL,
   `timestamp` DATETIME NOT NULL,
   `is_sitting` TINYINT(1) NOT NULL,
