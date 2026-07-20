@@ -14,7 +14,15 @@ func graphCacheHour(ts time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), 0, 0, 0, graphCacheLocation)
 }
 
-ｃ
+func clearIsuExistenceCache() {
+	isuExistenceCache.Lock()
+	isuExistenceCache.values = make(map[string]bool)
+	isuExistenceCache.Unlock()
+	isuActivateInFlight.Range(func(key, _ interface{}) bool {
+		isuActivateInFlight.Delete(key)
+		return true
+	})
+}
 
 func getCachedIsuExistence(jiaIsuUUID string) (bool, bool) {
 	isuExistenceCache.RLock()
