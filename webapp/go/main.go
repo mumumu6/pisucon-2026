@@ -109,7 +109,6 @@ type isuMetadataCacheEntry struct {
 type conditionWriteRequest struct {
 	jiaIsuUUID string
 	conditions []PostIsuConditionRequest
-	done       chan error
 }
 
 type Isu struct {
@@ -1421,9 +1420,8 @@ func conditionWriter(queue <-chan conditionWriteRequest) {
 			}
 		}
 
-		err := writeConditionBatch(batch)
-		for _, request := range batch {
-			request.done <- err
+		if err := writeConditionBatch(batch); err != nil {
+			log.Errorf("condition write batch error: %v", err)
 		}
 	}
 }
@@ -1602,35 +1600,20 @@ func postIsuCondition(c echo.Context) error {
 		}
 	}
 
-	done := make(chan error, 1)
 	writeRequest := conditionWriteRequest{
 		jiaIsuUUID: jiaIsuUUID,
 		conditions: req,
-		done:       done,
 	}
 
-	// JIAクライアントは短いタイムアウトで接続を閉じる。その後も
-	// キュー投入・DBコミット待ちを続けると、net/httpが接続を閉じられず
-	// CLOSE-WAITのsocketとhandler goroutineが蓄積する。
-	// 投入済みの書き込みはwriterに任せ、切断済みのHTTP handlerだけを返す。
+	// DBコミットは待たず、キュー投入成功時点で202を返す。
+	// JIAクライアントは短いタイムアウトなので、書き込み完了待ちはCLOSE-WAITの原因になりやすい。
 	requestContext := c.Request().Context()
 	select {
 	case conditionWriterQueue(jiaIsuUUID) <- writeRequest:
+		return c.NoContent(http.StatusAccepted)
 	case <-requestContext.Done():
 		return nil
 	}
-
-	select {
-	case err := <-done:
-		if err != nil {
-			c.Logger().Errorf("db error: %v", err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
-	case <-requestContext.Done():
-		return nil
-	}
-
-	return c.NoContent(http.StatusAccepted)
 }
 
 // ISUのコンディションの文字列がcsv形式になっているか検証
