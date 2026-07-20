@@ -5,6 +5,11 @@
 # これがないと他ホストのアプリから 3306 に繋がらない。
 [mysqld]
 bind-address = {{ mysql_bind_address }}
+# 未設定だと datadir 直下に巨大なスローログが溜まり、pt-query-digest が終わらなくなる
+slow_query_log = 1
+slow_query_log_file = {{ slow_log }}
+long_query_time = {{ mysql_slow_query_time }}
+log_output = FILE
 
 [mariadb]
 innodb_flush_log_at_trx_commit = {{ mysql_innodb_flush_log_at_trx_commit }}

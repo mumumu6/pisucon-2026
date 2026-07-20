@@ -1,4 +1,22 @@
 ---
+- name: スロークエリログ用ディレクトリを用意する
+  ansible.builtin.file:
+    path: "{{ slow_log | dirname }}"
+    state: directory
+    owner: mysql
+    group: adm
+    mode: "0750"
+
+- name: スロークエリログファイルを用意する
+  ansible.builtin.file:
+    path: "{{ slow_log }}"
+    state: touch
+    owner: mysql
+    group: adm
+    mode: "0640"
+    modification_time: preserve
+    access_time: preserve
+
 - name: MariaDBの性能・待ち受け設定を配置する
   ansible.builtin.template:
     src: templates/mysql-performance.cnf.j2

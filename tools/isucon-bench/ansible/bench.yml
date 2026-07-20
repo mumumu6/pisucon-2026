@@ -4,8 +4,7 @@
   gather_facts: false
   any_errors_fatal: true
   vars:
-    alp_options: []
-    pt_query_digest_options: []
+    # alp_options / pt_query_digest_options は group_vars を使う（ここで [] 上書きしない）
     session_dir: "{{ remote_log_root }}/{{ session_id }}/{{ inventory_hostname }}"
 
   pre_tasks:
@@ -255,22 +254,35 @@
             mode: "0644"
           when: inventory_hostname in groups['nginx']
 
+        - name: 解析対象のスロークエリログを確認する
+          ansible.builtin.stat:
+            path: "{{ session_dir }}/mysql-slow.log"
+          register: session_slow_log_stat
+          when: inventory_hostname in groups['db']
+
         - name: MariaDBのスロークエリログを解析する
           ansible.builtin.command:
             argv: >-
-              {{ ['pt-query-digest', '--limit', '20'] + pt_query_digest_options +
+              {{ ['timeout', pt_query_digest_timeout_seconds | default(120) | string,
+                  'pt-query-digest', '--limit', '20'] + pt_query_digest_options +
                  [session_dir + '/mysql-slow.log'] }}
           register: slow_query_result
           changed_when: false
           failed_when: false
-          when: inventory_hostname in groups['db']
+          when:
+            - inventory_hostname in groups['db']
+            - session_slow_log_stat.stat.exists | default(false)
+            - (session_slow_log_stat.stat.size | default(0)) > 0
+
 
         - name: スロークエリ解析結果を保存する
           ansible.builtin.copy:
             content: "{{ slow_query_result.stdout | default('No slow-query data collected.', true) }}\n"
             dest: "{{ session_dir }}/pt-query-digest.txt"
             mode: "0644"
-          when: inventory_hostname in groups['db']
+          when:
+            - inventory_hostname in groups['db']
+            - slow_query_result is defined
 
         - name: 取得したCPUプロファイルを確認する
           ansible.builtin.stat:
