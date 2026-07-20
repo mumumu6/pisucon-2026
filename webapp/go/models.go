@@ -28,16 +28,17 @@ const (
 	scoreConditionLevelInfo     = 3
 	scoreConditionLevelWarning  = 2
 	scoreConditionLevelCritical = 1
-	// initialize からの経過で TTL を段階的に伸ばす（3.2M→さらに山を探る）
+	// trend TTL 配分（initialize 起点）
+	// 序盤は短くして評判→ユーザー増。timeout 2 は無視して終盤は長めに戻す。
 	// 0-5s / 5-10s / 10-25s / 25-45s / 45s-
-	trendTTL0                   = 1500 * time.Millisecond
-	trendMaxAge0                = 1800 * time.Millisecond
-	trendTTL1                   = 2200 * time.Millisecond
-	trendMaxAge1                = 2500 * time.Millisecond
-	trendTTL2                   = 3000 * time.Millisecond
-	trendMaxAge2                = 3500 * time.Millisecond
-	trendTTL3                   = 4000 * time.Millisecond
-	trendMaxAge3                = 4500 * time.Millisecond
+	trendTTL0                   = 1000 * time.Millisecond
+	trendMaxAge0                = 1300 * time.Millisecond
+	trendTTL1                   = 1600 * time.Millisecond
+	trendMaxAge1                = 2000 * time.Millisecond
+	trendTTL2                   = 3200 * time.Millisecond
+	trendMaxAge2                = 3700 * time.Millisecond
+	trendTTL3                   = 4500 * time.Millisecond
+	trendMaxAge3                = 5000 * time.Millisecond
 	trendTTL4                   = 5500 * time.Millisecond
 	trendMaxAge4                = 6000 * time.Millisecond
 	trendPhaseUntil0            = 5 * time.Second
