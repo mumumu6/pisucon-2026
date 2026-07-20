@@ -254,8 +254,19 @@ func getIsuIcon(c echo.Context) error {
 	}
 
 	jiaIsuUUID := c.Param("jia_isu_uuid")
+	// 登録後は不変。private（ユーザ間で共有しない）+ max-age で再取得自体を減らす。
+	etag := `"` + jiaIsuUUID + `"`
+	writeIconHeaders := func() {
+		c.Response().Header().Set("Cache-Control", "private, max-age=86400")
+		c.Response().Header().Set("ETag", etag)
+	}
+	ifNoneMatch := c.Request().Header.Get("If-None-Match")
 
 	if image, ok := getCachedIsuIcon(jiaIsuUUID, jiaUserID); ok {
+		writeIconHeaders()
+		if ifNoneMatch == etag {
+			return c.NoContent(http.StatusNotModified)
+		}
 		return c.Blob(http.StatusOK, "", image)
 	}
 
@@ -273,6 +284,10 @@ func getIsuIcon(c echo.Context) error {
 	setCachedIsuOwner(jiaIsuUUID, jiaUserID)
 	setCachedIsuIconAsync(jiaIsuUUID, jiaUserID, image)
 
+	writeIconHeaders()
+	if ifNoneMatch == etag {
+		return c.NoContent(http.StatusNotModified)
+	}
 	return c.Blob(http.StatusOK, "", image)
 }
 
