@@ -24,65 +24,101 @@ func getIsuList(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	isuList := []Isu{}
-	err = db.Select(
-		&isuList,
-		"SELECT `id`, `jia_isu_uuid`, `name`, `character`, `latest_timestamp`, `latest_is_sitting`, `latest_condition`, `latest_message`, `jia_user_id`, `created_at`, `updated_at`"+
-			" FROM `isu` WHERE `jia_user_id` = ? ORDER BY `id` DESC",
-		jiaUserID)
-	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
+	if body, ok := getCachedIsuListJSON(jiaUserID); ok {
+		return c.JSONBlob(http.StatusOK, body)
 	}
 
-	responseList := make([]GetIsuListResponse, 0, len(isuList))
-	for _, isu := range isuList {
-		setCachedIsuOwner(isu.JIAIsuUUID, jiaUserID)
-		setCachedIsuMetadata(isu.JIAIsuUUID, jiaUserID, isu.Name)
-		var formattedCondition *GetIsuConditionResponse
-		if latest, ok := getCachedIsuLatestCondition(isu.JIAIsuUUID); ok {
-			conditionLevel, err := calculateConditionLevel(latest.Condition)
-			if err != nil {
-				c.Logger().Error(err)
-				return c.NoContent(http.StatusInternalServerError)
-			}
-			formattedCondition = &GetIsuConditionResponse{
-				JIAIsuUUID:     isu.JIAIsuUUID,
-				IsuName:        isu.Name,
-				Timestamp:      latest.Timestamp,
-				IsSitting:      latest.IsSitting,
-				Condition:      latest.Condition,
-				ConditionLevel: conditionLevel,
-				Message:        latest.Message,
-			}
-		} else if isu.LatestTimestamp.Valid {
-			conditionLevel, err := calculateConditionLevel(isu.LatestCondition.String)
-			if err != nil {
-				c.Logger().Error(err)
-				return c.NoContent(http.StatusInternalServerError)
-			}
+	order, haveOrder := getCachedIsuListOrder(jiaUserID)
+	responseList := make([]GetIsuListResponse, 0, 16)
 
-			formattedCondition = &GetIsuConditionResponse{
-				JIAIsuUUID:     isu.JIAIsuUUID,
-				IsuName:        isu.Name,
-				Timestamp:      isu.LatestTimestamp.Time.Unix(),
-				IsSitting:      isu.LatestIsSitting.Bool,
-				Condition:      isu.LatestCondition.String,
-				ConditionLevel: conditionLevel,
-				Message:        isu.LatestMessage.String,
+	if haveOrder {
+		responseList = make([]GetIsuListResponse, 0, len(order))
+		for _, jiaIsuUUID := range order {
+			entry, ok := getCachedIsuRecord(jiaIsuUUID, jiaUserID)
+			if !ok {
+				haveOrder = false
+				break
 			}
+			res, err := buildIsuListItem(jiaIsuUUID, entry)
+			if err != nil {
+				c.Logger().Error(err)
+				return c.NoContent(http.StatusInternalServerError)
+			}
+			responseList = append(responseList, res)
+		}
+	}
+
+	if !haveOrder {
+		isuList := []Isu{}
+		err = db.Select(
+			&isuList,
+			"SELECT `id`, `jia_isu_uuid`, `name`, `character`, `latest_timestamp`, `latest_is_sitting`, `latest_condition`, `latest_message`, `jia_user_id`, `created_at`, `updated_at`"+
+				" FROM `isu` WHERE `jia_user_id` = ? ORDER BY `id` DESC",
+			jiaUserID)
+		if err != nil {
+			c.Logger().Errorf("db error: %v", err)
+			return c.NoContent(http.StatusInternalServerError)
 		}
 
-		res := GetIsuListResponse{
-			ID:                 isu.ID,
-			JIAIsuUUID:         isu.JIAIsuUUID,
-			Name:               isu.Name,
-			Character:          isu.Character,
-			LatestIsuCondition: formattedCondition}
-		responseList = append(responseList, res)
+		order = make([]string, 0, len(isuList))
+		responseList = make([]GetIsuListResponse, 0, len(isuList))
+		for _, isu := range isuList {
+			setCachedIsuOwner(isu.JIAIsuUUID, jiaUserID)
+			setCachedIsuMetadata(isu.JIAIsuUUID, jiaUserID, isu.ID, isu.Name, isu.Character)
+			order = append(order, isu.JIAIsuUUID)
+			if _, ok := getCachedIsuLatestCondition(isu.JIAIsuUUID); !ok && isu.LatestTimestamp.Valid {
+				setCachedIsuLatestCondition(
+					isu.JIAIsuUUID,
+					isu.LatestTimestamp.Time.Unix(),
+					isu.LatestIsSitting.Bool,
+					isu.LatestCondition.String,
+					isu.LatestMessage.String,
+				)
+			}
+			entry, _ := getCachedIsuRecord(isu.JIAIsuUUID, jiaUserID)
+			res, err := buildIsuListItem(isu.JIAIsuUUID, entry)
+			if err != nil {
+				c.Logger().Error(err)
+				return c.NoContent(http.StatusInternalServerError)
+			}
+			responseList = append(responseList, res)
+		}
+		setIsuListOrder(jiaUserID, order)
 	}
 
-	return c.JSON(http.StatusOK, responseList)
+	body, err := jsonFast.Marshal(responseList)
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	setCachedIsuListJSON(jiaUserID, body)
+	return c.JSONBlob(http.StatusOK, body)
+}
+
+func buildIsuListItem(jiaIsuUUID string, entry isuMetadataCacheEntry) (GetIsuListResponse, error) {
+	var formattedCondition *GetIsuConditionResponse
+	if latest, ok := getCachedIsuLatestCondition(jiaIsuUUID); ok {
+		conditionLevel, err := calculateConditionLevel(latest.Condition)
+		if err != nil {
+			return GetIsuListResponse{}, err
+		}
+		formattedCondition = &GetIsuConditionResponse{
+			JIAIsuUUID:     jiaIsuUUID,
+			IsuName:        entry.name,
+			Timestamp:      latest.Timestamp,
+			IsSitting:      latest.IsSitting,
+			Condition:      latest.Condition,
+			ConditionLevel: conditionLevel,
+			Message:        latest.Message,
+		}
+	}
+	return GetIsuListResponse{
+		ID:                 entry.id,
+		JIAIsuUUID:         jiaIsuUUID,
+		Name:               entry.name,
+		Character:          entry.character,
+		LatestIsuCondition: formattedCondition,
+	}, nil
 }
 
 // POST /api/isu
@@ -228,8 +264,9 @@ func postIsu(c echo.Context) error {
 
 	setCachedIsuExistence(jiaIsuUUID, true)
 	setCachedIsuOwner(jiaIsuUUID, jiaUserID)
-	setCachedIsuMetadata(jiaIsuUUID, jiaUserID, isuName)
+	setCachedIsuMetadata(jiaIsuUUID, jiaUserID, isu.ID, isuName, isuFromJIA.Character)
 	setCachedIsuIcon(jiaIsuUUID, jiaUserID, image)
+	prependIsuListOrder(jiaUserID, jiaIsuUUID)
 	activateOK = true
 	isuActivateInFlight.Delete(jiaIsuUUID)
 
@@ -251,6 +288,18 @@ func getIsuID(c echo.Context) error {
 
 	jiaIsuUUID := c.Param("jia_isu_uuid")
 
+	if entry, ok := getCachedIsuRecord(jiaIsuUUID, jiaUserID); ok {
+		if len(entry.jsonBody) > 0 {
+			return c.JSONBlob(http.StatusOK, entry.jsonBody)
+		}
+		return c.JSON(http.StatusOK, Isu{
+			ID:         entry.id,
+			JIAIsuUUID: jiaIsuUUID,
+			Name:       entry.name,
+			Character:  entry.character,
+		})
+	}
+
 	var res Isu
 	err = db.Get(&res, "SELECT `id`, `jia_isu_uuid`, `name`, `character` FROM `isu`"+
 		" WHERE `jia_user_id` = ? AND `jia_isu_uuid` = ?",
@@ -264,8 +313,11 @@ func getIsuID(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	setCachedIsuOwner(jiaIsuUUID, jiaUserID)
-	setCachedIsuMetadata(jiaIsuUUID, jiaUserID, res.Name)
+	setCachedIsuMetadata(jiaIsuUUID, jiaUserID, res.ID, res.Name, res.Character)
 
+	if entry, ok := getCachedIsuRecord(jiaIsuUUID, jiaUserID); ok && len(entry.jsonBody) > 0 {
+		return c.JSONBlob(http.StatusOK, entry.jsonBody)
+	}
 	return c.JSON(http.StatusOK, res)
 }
 

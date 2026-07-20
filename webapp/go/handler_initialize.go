@@ -49,6 +49,10 @@ func postInitialize(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	warmIsuLatestTimestamps()
+	if err := warmIsuMetadataCache(); err != nil {
+		c.Logger().Errorf("warm isu metadata error: %v", err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
 	warmGraphCache()
 	resetTrendSchedule()
 

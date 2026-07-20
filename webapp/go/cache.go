@@ -60,6 +60,10 @@ func clearIsuMetadataCache() {
 	isuMetadataCache.Lock()
 	isuMetadataCache.values = make(map[string]isuMetadataCacheEntry)
 	isuMetadataCache.Unlock()
+	isuListByUser.Lock()
+	isuListByUser.order = make(map[string][]string)
+	isuListByUser.listJSON = make(map[string][]byte)
+	isuListByUser.Unlock()
 }
 
 func getCachedIsuMetadata(jiaIsuUUID, jiaUserID string) (string, bool) {
@@ -72,10 +76,128 @@ func getCachedIsuMetadata(jiaIsuUUID, jiaUserID string) (string, bool) {
 	return entry.name, true
 }
 
-func setCachedIsuMetadata(jiaIsuUUID, jiaUserID, name string) {
+func getCachedIsuRecord(jiaIsuUUID, jiaUserID string) (isuMetadataCacheEntry, bool) {
+	isuMetadataCache.RLock()
+	entry, ok := isuMetadataCache.values[jiaIsuUUID]
+	isuMetadataCache.RUnlock()
+	if !ok || entry.jiaUserID != jiaUserID || entry.id == 0 {
+		return isuMetadataCacheEntry{}, false
+	}
+	return entry, true
+}
+
+func setCachedIsuMetadata(jiaIsuUUID, jiaUserID string, id int, name, character string) {
+	var jsonBody []byte
+	if id > 0 {
+		if body, err := jsonFast.Marshal(Isu{
+			ID:         id,
+			JIAIsuUUID: jiaIsuUUID,
+			Name:       name,
+			Character:  character,
+		}); err == nil {
+			jsonBody = body
+		}
+	}
 	isuMetadataCache.Lock()
-	isuMetadataCache.values[jiaIsuUUID] = isuMetadataCacheEntry{jiaUserID: jiaUserID, name: name}
+	isuMetadataCache.values[jiaIsuUUID] = isuMetadataCacheEntry{
+		jiaUserID: jiaUserID,
+		id:        id,
+		name:      name,
+		character: character,
+		jsonBody:  jsonBody,
+	}
 	isuMetadataCache.Unlock()
+}
+
+func getCachedIsuListOrder(jiaUserID string) ([]string, bool) {
+	isuListByUser.RLock()
+	order, ok := isuListByUser.order[jiaUserID]
+	isuListByUser.RUnlock()
+	if !ok {
+		return nil, false
+	}
+	out := make([]string, len(order))
+	copy(out, order)
+	return out, true
+}
+
+func getCachedIsuListJSON(jiaUserID string) ([]byte, bool) {
+	isuListByUser.RLock()
+	body, ok := isuListByUser.listJSON[jiaUserID]
+	isuListByUser.RUnlock()
+	if !ok || len(body) == 0 {
+		return nil, false
+	}
+	return body, true
+}
+
+func setCachedIsuListJSON(jiaUserID string, body []byte) {
+	isuListByUser.Lock()
+	isuListByUser.listJSON[jiaUserID] = body
+	isuListByUser.Unlock()
+}
+
+func invalidateIsuListJSON(jiaUserID string) {
+	isuListByUser.Lock()
+	delete(isuListByUser.listJSON, jiaUserID)
+	isuListByUser.Unlock()
+}
+
+func invalidateIsuListJSONByIsu(jiaIsuUUID string) {
+	owner, ok := getCachedIsuOwner(jiaIsuUUID)
+	if !ok {
+		return
+	}
+	invalidateIsuListJSON(owner)
+}
+
+// prependIsuListOrder は新規登録 ISU を一覧先頭（id DESC）に追加し、一覧 JSON を捨てる。
+func prependIsuListOrder(jiaUserID, jiaIsuUUID string) {
+	isuListByUser.Lock()
+	order := isuListByUser.order[jiaUserID]
+	next := make([]string, 0, len(order)+1)
+	next = append(next, jiaIsuUUID)
+	next = append(next, order...)
+	isuListByUser.order[jiaUserID] = next
+	delete(isuListByUser.listJSON, jiaUserID)
+	isuListByUser.Unlock()
+}
+
+func setIsuListOrder(jiaUserID string, order []string) {
+	copied := make([]string, len(order))
+	copy(copied, order)
+	isuListByUser.Lock()
+	isuListByUser.order[jiaUserID] = copied
+	delete(isuListByUser.listJSON, jiaUserID)
+	isuListByUser.Unlock()
+}
+
+// warmIsuMetadataCache は initialize 後に一覧・詳細用メタデータを載せる。
+func warmIsuMetadataCache() error {
+	type row struct {
+		ID         int    `db:"id"`
+		JIAIsuUUID string `db:"jia_isu_uuid"`
+		Name       string `db:"name"`
+		Character  string `db:"character"`
+		JIAUserID  string `db:"jia_user_id"`
+	}
+	rows := []row{}
+	if err := db.Select(&rows,
+		"SELECT `id`, `jia_isu_uuid`, `name`, `character`, `jia_user_id` FROM `isu` ORDER BY `id` DESC"); err != nil {
+		return err
+	}
+	orders := make(map[string][]string, 256)
+	for _, r := range rows {
+		setCachedIsuExistence(r.JIAIsuUUID, true)
+		setCachedIsuOwner(r.JIAIsuUUID, r.JIAUserID)
+		setCachedIsuMetadata(r.JIAIsuUUID, r.JIAUserID, r.ID, r.Name, r.Character)
+		orders[r.JIAUserID] = append(orders[r.JIAUserID], r.JIAIsuUUID)
+	}
+	isuListByUser.Lock()
+	isuListByUser.order = orders
+	isuListByUser.listJSON = make(map[string][]byte)
+	isuListByUser.Unlock()
+	return nil
 }
 
 // clearIsuLatestConditionCache は各 ISU の最新 condition キャッシュを捨てる（initialize 時）。
@@ -107,8 +229,8 @@ func getCachedIsuLatestCondition(jiaIsuUUID string) (isuLatestConditionEntry, bo
 // setCachedIsuLatestCondition は最新 condition をメモリに載せる（より新しいときだけ）。
 func setCachedIsuLatestCondition(jiaIsuUUID string, timestamp int64, isSitting bool, condition, message string) {
 	isuLatestConditionCache.Lock()
-	defer isuLatestConditionCache.Unlock()
 	if cached, ok := isuLatestConditionCache.values[jiaIsuUUID]; ok && timestamp < cached.Timestamp {
+		isuLatestConditionCache.Unlock()
 		return
 	}
 	isuLatestConditionCache.values[jiaIsuUUID] = isuLatestConditionEntry{
@@ -117,6 +239,9 @@ func setCachedIsuLatestCondition(jiaIsuUUID string, timestamp int64, isSitting b
 		Condition: condition,
 		Message:   message,
 	}
+	isuLatestConditionCache.Unlock()
+	// 一覧 JSON は latest を含むので捨てる
+	invalidateIsuListJSONByIsu(jiaIsuUUID)
 }
 
 func clearIsuIconCache() {

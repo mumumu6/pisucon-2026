@@ -76,7 +76,7 @@ func getIsuConditions(c echo.Context) error {
 			return c.NoContent(http.StatusInternalServerError)
 		}
 		setCachedIsuOwner(jiaIsuUUID, jiaUserID)
-		setCachedIsuMetadata(jiaIsuUUID, jiaUserID, isuName)
+		setCachedIsuMetadata(jiaIsuUUID, jiaUserID, 0, isuName, "")
 	}
 
 	conditionsResponse := getIsuConditionsFromMem(jiaIsuUUID, endTime, conditionLevel, startTime, conditionLimit, isuName)

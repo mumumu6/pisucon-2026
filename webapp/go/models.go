@@ -29,10 +29,11 @@ const (
 	scoreConditionLevelWarning  = 2
 	scoreConditionLevelCritical = 1
 	// trend TTL 配分（initialize 起点）
-	// 実測ベスト 3.58M。短序盤+長後半(3.43M)は前半ほぼ同じで後半だけ負けた。
+	// 0-5s を 100ms にすると人増えすぎて GraphGood が削れる（3.31M）。
+	// 3.88M 付近の配分に戻す。
 	// 0-5s / 5-10s / 10-25s / 25-45s / 45s-
 	trendTTL0                   = 100 * time.Millisecond
-	trendMaxAge0                = 500 * time.Millisecond
+	trendMaxAge0                = 1000 * time.Millisecond
 	trendTTL1                   = 2200 * time.Millisecond
 	trendMaxAge1                = 2500 * time.Millisecond
 	trendTTL2                   = 3000 * time.Millisecond
@@ -109,6 +110,13 @@ var (
 		values map[string]isuMetadataCacheEntry
 	}{values: make(map[string]isuMetadataCacheEntry)}
 
+	// ユーザごとの ISU 一覧（id DESC の UUID 列）と、組み立て済み一覧 JSON。
+	isuListByUser = struct {
+		sync.RWMutex
+		order    map[string][]string
+		listJSON map[string][]byte
+	}{order: make(map[string][]string), listJSON: make(map[string][]byte)}
+
 	isuLatestConditionCache = struct {
 		sync.RWMutex
 		values map[string]isuLatestConditionEntry
@@ -154,7 +162,11 @@ type isuIconCacheEntry struct {
 
 type isuMetadataCacheEntry struct {
 	jiaUserID string
+	id        int
 	name      string
+	character string
+	// getIsuID 用。登録後不変なので JSON を保持する。
+	jsonBody []byte
 }
 
 type conditionWriteRequest struct {
