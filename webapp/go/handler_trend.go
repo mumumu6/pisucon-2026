@@ -67,16 +67,20 @@ func getTrendJSON() ([]byte, error) {
 func trendCacheDurations() (ttl, maxAge time.Duration) {
 	start := trendScheduleStart
 	if start.IsZero() {
-		return trendTTLMid, trendMaxAgeMid
+		return trendTTL2, trendMaxAge2
 	}
 	elapsed := time.Since(start)
 	switch {
-	case elapsed < trendPhaseEarlyUntil:
-		return trendTTLEarly, trendMaxAgeEarly
-	case elapsed < trendPhaseMidUntil:
-		return trendTTLMid, trendMaxAgeMid
+	case elapsed < trendPhaseUntil0:
+		return trendTTL0, trendMaxAge0
+	case elapsed < trendPhaseUntil1:
+		return trendTTL1, trendMaxAge1
+	case elapsed < trendPhaseUntil2:
+		return trendTTL2, trendMaxAge2
+	case elapsed < trendPhaseUntil3:
+		return trendTTL3, trendMaxAge3
 	default:
-		return trendTTLLate, trendMaxAgeLate
+		return trendTTL4, trendMaxAge4
 	}
 }
 

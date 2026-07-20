@@ -28,15 +28,22 @@ const (
 	scoreConditionLevelInfo     = 3
 	scoreConditionLevelWarning  = 2
 	scoreConditionLevelCritical = 1
-	// 3000/3500（山の付近の感触）
-	trendTTLEarly               = 3000 * time.Millisecond
-	trendMaxAgeEarly            = 3500 * time.Millisecond
-	trendTTLMid                 = 3000 * time.Millisecond
-	trendMaxAgeMid              = 3500 * time.Millisecond
-	trendTTLLate                = 3000 * time.Millisecond
-	trendMaxAgeLate             = 3500 * time.Millisecond
-	trendPhaseEarlyUntil        = 25 * time.Second
-	trendPhaseMidUntil          = 45 * time.Second
+	// initialize からの経過で TTL を段階的に伸ばす（3.2M→さらに山を探る）
+	// 0-5s / 5-10s / 10-25s / 25-45s / 45s-
+	trendTTL0                   = 1500 * time.Millisecond
+	trendMaxAge0                = 1800 * time.Millisecond
+	trendTTL1                   = 2200 * time.Millisecond
+	trendMaxAge1                = 2500 * time.Millisecond
+	trendTTL2                   = 3000 * time.Millisecond
+	trendMaxAge2                = 3500 * time.Millisecond
+	trendTTL3                   = 4000 * time.Millisecond
+	trendMaxAge3                = 4500 * time.Millisecond
+	trendTTL4                   = 5500 * time.Millisecond
+	trendMaxAge4                = 6000 * time.Millisecond
+	trendPhaseUntil0            = 5 * time.Second
+	trendPhaseUntil1            = 10 * time.Second
+	trendPhaseUntil2            = 25 * time.Second
+	trendPhaseUntil3            = 45 * time.Second
 	conditionBatchMaxRequests   = 512
 	conditionBatchWait          = 1 * time.Millisecond
 	conditionWriterCount        = 128
