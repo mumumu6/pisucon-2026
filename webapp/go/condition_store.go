@@ -92,8 +92,8 @@ func warmConditionStore() error {
 	return nil
 }
 
-// appendIsuConditions は POST 反映後に末尾へ追加する。
-// ISU 単位で timestamp は単調増加・非重複が保証されている。
+// appendIsuConditions は timestamp 昇順を保って追加する。
+// HTTP 到着順は単調増加を保証しないため、末尾追加ではなく挿入する。
 func appendIsuConditions(jiaIsuUUID string, conditions []PostIsuConditionRequest) {
 	if len(conditions) == 0 {
 		return
@@ -102,12 +102,26 @@ func appendIsuConditions(jiaIsuUUID string, conditions []PostIsuConditionRequest
 	mem.Lock()
 	defer mem.Unlock()
 	for _, c := range conditions {
-		mem.items = append(mem.items, storedCondition{
+		item := storedCondition{
 			Timestamp: c.Timestamp,
 			IsSitting: c.IsSitting,
 			Condition: c.Condition,
 			Message:   c.Message,
+		}
+		n := len(mem.items)
+		if n == 0 || item.Timestamp > mem.items[n-1].Timestamp {
+			mem.items = append(mem.items, item)
+			continue
+		}
+		i := sort.Search(n, func(i int) bool {
+			return mem.items[i].Timestamp >= item.Timestamp
 		})
+		if i < n && mem.items[i].Timestamp == item.Timestamp {
+			continue // 重複は無視（DB の INSERT IGNORE と同様）
+		}
+		mem.items = append(mem.items, storedCondition{})
+		copy(mem.items[i+1:], mem.items[i:])
+		mem.items[i] = item
 	}
 }
 
