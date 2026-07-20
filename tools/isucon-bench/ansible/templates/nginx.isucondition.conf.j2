@@ -1,64 +1,39 @@
-sendfile on;
-tcp_nopush on;
-tcp_nodelay on;
-keepalive_timeout {{ nginx_keepalive_timeout }};
-keepalive_requests {{ nginx_keepalive_requests }};
+upstream isucondition_app {
+    server {{ nginx_app_backend_host }}:{{ nginx_app_port }};
+    keepalive {{ nginx_upstream_keepalive }};
+}
 
 server {
-    listen {{ nginx_listen_port }} reuseport;
+    listen {{ nginx_listen_port }};
     listen [::]:{{ nginx_listen_port }};
-{% if nginx_enable_https %}
-    listen {{ nginx_https_port }} ssl http2 reuseport;
-    listen [::]:{{ nginx_https_port }} ssl http2;
-
-    ssl_certificate {{ nginx_ssl_certificate }};
-    ssl_certificate_key {{ nginx_ssl_certificate_key }};
-    ssl_session_cache shared:SSL:10m;
-    ssl_session_timeout 1d;
-    ssl_session_tickets on;
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_prefer_server_ciphers off;
-{% endif %}
-
     server_name _;
 
     client_body_buffer_size {{ nginx_client_body_buffer_size }};
-    client_max_body_size {{ nginx_client_max_body_size }};
 
-    # Accept-Encoding: gzip のクライアント向け。API(proxy)は gzip_proxied が必要。
+    # trendなどのJSONレスポンスを軽量圧縮し、転送量とGoの書き込み負荷を減らす。
+    # gzip_proxied は付けない（proxy APIは圧縮しない。ベンチはAEを送らない想定）。
     gzip on;
     gzip_comp_level 1;
     gzip_min_length 1024;
-    gzip_proxied any;
-    gzip_types
-        application/json
-        text/css
-        text/javascript
-        application/javascript
-        application/x-javascript
-        application/xml
-        text/plain
-        image/svg+xml;
+    gzip_types application/json;
     gzip_vary on;
-
-    open_file_cache max=10000 inactive=60s;
-    open_file_cache_valid 60s;
-    open_file_cache_min_uses 1;
-    open_file_cache_errors on;
 
     root {{ frontend_public_dir }};
     index index.html;
 
+    # Vite がファイル名へ内容ハッシュを含めるため、長期キャッシュしてよい。
     location ^~ /assets/ {
         try_files $uri =404;
         access_log off;
         expires 1y;
         add_header Cache-Control "public, immutable";
-        gzip_static on;
     }
 
+    # 初期化と API だけを Go アプリケーションへ渡す。
     location = /initialize {
-        proxy_pass http://{{ nginx_app_backend_host }}:{{ nginx_app_port }};
+        proxy_pass http://isucondition_app;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -66,13 +41,16 @@ server {
     }
 
     location ^~ /api/ {
-        proxy_pass http://{{ nginx_app_backend_host }}:{{ nginx_app_port }};
+        proxy_pass http://isucondition_app;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # React Router の画面URLは index.html へフォールバックする。
     location / {
         try_files $uri $uri/ /index.html;
     }
