@@ -31,10 +31,11 @@ const (
 	trendCacheMaxAge            = 900 * time.Millisecond
 	conditionBatchMaxRequests   = 128
 	conditionBatchWait          = 5 * time.Millisecond
-	conditionWriterCount        = 4
-	// グラフ当日分（まだ終わりきってない24h窓）のキャッシュ寿命
-	graphCacheTodayTTL = 500 * time.Millisecond
+	conditionWriterCount = 4
+	graphCacheWarmWorkers = 8
 )
+
+var graphCacheLocation = time.FixedZone("Asia/Tokyo", 9*60*60)
 
 var (
 	db                  *sqlx.DB
@@ -90,8 +91,7 @@ var (
 )
 
 type graphCacheEntry struct {
-	body      []byte
-	expiresAt time.Time // zero なら期限なし（過去日）。invalidate まで有効
+	body []byte
 }
 
 type isuIconCacheEntry struct {

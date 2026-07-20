@@ -273,9 +273,20 @@ func writeConditionBatch(batch []conditionWriteRequest) error {
 	if err != nil {
 		return err
 	}
-	// 当日グラフなどが古くなるので、書いた ISU のグラフキャッシュを捨てる
-	for jiaIsuUUID := range latestByIsu {
-		invalidateGraphCache(jiaIsuUUID)
+	// 書いた日のグラフだけ捨てる（過去日キャッシュは残す）
+	daysByIsu := make(map[string]map[int64]struct{}, len(latestByIsu))
+	for _, request := range batch {
+		daySet := daysByIsu[request.jiaIsuUUID]
+		if daySet == nil {
+			daySet = make(map[int64]struct{})
+			daysByIsu[request.jiaIsuUUID] = daySet
+		}
+		for _, condition := range request.conditions {
+			daySet[graphCacheDay(time.Unix(condition.Timestamp, 0)).Unix()] = struct{}{}
+		}
+	}
+	for jiaIsuUUID, daySet := range daysByIsu {
+		invalidateGraphCacheDays(jiaIsuUUID, daySet)
 	}
 
 	uuids := make([]string, 0, len(latestByIsu))

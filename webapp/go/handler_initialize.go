@@ -41,6 +41,12 @@ func postInitialize(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	// 種データのグラフを全部載せる。以降は書いた日以外 invalidate しない。
+	if err := warmGraphCache(); err != nil {
+		c.Logger().Errorf("warm graph cache error: %v", err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
 	return c.JSON(http.StatusOK, InitializeResponse{
 		Language: "go",
 	})

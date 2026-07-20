@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -31,7 +32,7 @@ func getIsuGraph(c echo.Context) error {
 	if err != nil {
 		return c.String(http.StatusBadRequest, "bad format: datetime")
 	}
-	date := time.Unix(datetimeInt64, 0).Truncate(time.Hour)
+	date := graphCacheDay(time.Unix(datetimeInt64, 0))
 
 	owner, cached := getCachedIsuOwner(jiaIsuUUID)
 	if cached {
@@ -202,6 +203,87 @@ func calculateGraphDataPoint(isuConditions []isuConditionGraphRow) (GraphDataPoi
 			IsDirty:      isDirtyCount * 100 / n,
 		},
 	}, nil
+}
+
+// initialize 後に種データのグラフを全部載せる。以降、書いた日以外は消しません。
+func warmGraphCache() error {
+	type job struct {
+		uuid string
+		day  time.Time
+	}
+	// DATE() は session tz 依存なので、全行を舐めて JST 日でユニーク化する
+	rows, err := db.Queryx("SELECT `jia_isu_uuid`, `timestamp` FROM `isu_condition`")
+	if err != nil {
+		return fmt.Errorf("select graph warm rows: %w", err)
+	}
+	type dayKey struct {
+		uuid string
+		day  int64
+	}
+	seen := make(map[dayKey]struct{}, 4096)
+	jobsList := make([]job, 0, 4096)
+	for rows.Next() {
+		var uuid string
+		var ts time.Time
+		if err := rows.Scan(&uuid, &ts); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan graph warm row: %w", err)
+		}
+		day := graphCacheDay(ts)
+		key := dayKey{uuid: uuid, day: day.Unix()}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		jobsList = append(jobsList, job{uuid: uuid, day: day})
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate graph warm rows: %w", err)
+	}
+	if len(jobsList) == 0 {
+		return nil
+	}
+
+	jobs := make(chan job, len(jobsList))
+	for _, j := range jobsList {
+		jobs <- j
+	}
+	close(jobs)
+
+	workerCount := graphCacheWarmWorkers
+	if workerCount > len(jobsList) {
+		workerCount = len(jobsList)
+	}
+	errCh := make(chan error, workerCount)
+	var wg sync.WaitGroup
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range jobs {
+				res, err := generateIsuGraphResponse(db, j.uuid, j.day)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				body, err := jsonFast.Marshal(res)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				setCachedGraph(j.uuid, j.day, body)
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // GET /api/condition/:jia_isu_uuid

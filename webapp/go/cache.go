@@ -2,6 +2,12 @@ package main
 
 import "time"
 
+// グラフ日のキャッシュキー（JST 0時）。getIsuGraph の datetime（日毎）と揃える。
+func graphCacheDay(ts time.Time) time.Time {
+	t := ts.In(graphCacheLocation)
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, graphCacheLocation)
+}
+
 func clearIsuExistenceCache() {
 	isuExistenceCache.Lock()
 	defer isuExistenceCache.Unlock()
@@ -95,45 +101,52 @@ func clearGraphCache() {
 	graphCache.Unlock()
 }
 
-func invalidateGraphCache(jiaIsuUUID string) {
+// 書いた日のグラフだけ捨てる。当日以外（もう増えない日）は残す。
+func invalidateGraphCacheDays(jiaIsuUUID string, dayUnixes map[int64]struct{}) {
+	if len(dayUnixes) == 0 {
+		return
+	}
 	graphCache.Lock()
-	delete(graphCache.values, jiaIsuUUID)
+	byDay, ok := graphCache.values[jiaIsuUUID]
+	if !ok {
+		graphCache.Unlock()
+		return
+	}
+	for dayUnix := range dayUnixes {
+		delete(byDay, dayUnix)
+	}
+	if len(byDay) == 0 {
+		delete(graphCache.values, jiaIsuUUID)
+	}
 	graphCache.Unlock()
 }
 
 func getCachedGraph(jiaIsuUUID string, graphDate time.Time) ([]byte, bool) {
+	dayUnix := graphCacheDay(graphDate).Unix()
 	graphCache.RLock()
 	byDay, ok := graphCache.values[jiaIsuUUID]
 	if !ok {
 		graphCache.RUnlock()
 		return nil, false
 	}
-	entry, ok := byDay[graphDate.Unix()]
+	entry, ok := byDay[dayUnix]
 	graphCache.RUnlock()
 	if !ok {
-		return nil, false
-	}
-	if !entry.expiresAt.IsZero() && time.Now().After(entry.expiresAt) {
 		return nil, false
 	}
 	return entry.body, true
 }
 
 func setCachedGraph(jiaIsuUUID string, graphDate time.Time, body []byte) {
-	dayEnd := graphDate.Add(24 * time.Hour)
-	var expiresAt time.Time
-	if dayEnd.After(time.Now()) {
-		// 当日（まだ書き込みが入る窓）は短命
-		expiresAt = time.Now().Add(graphCacheTodayTTL)
-	}
-
+	dayUnix := graphCacheDay(graphDate).Unix()
 	graphCache.Lock()
 	byDay := graphCache.values[jiaIsuUUID]
 	if byDay == nil {
 		byDay = make(map[int64]graphCacheEntry)
 		graphCache.values[jiaIsuUUID] = byDay
 	}
-	byDay[graphDate.Unix()] = graphCacheEntry{body: body, expiresAt: expiresAt}
+	// 期限なし。更新が入った日だけ invalidateGraphCacheDays で消す。
+	byDay[dayUnix] = graphCacheEntry{body: body}
 	graphCache.Unlock()
 }
 
