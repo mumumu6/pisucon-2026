@@ -1,6 +1,8 @@
 {% raw %}
 {
-  "annotations": { "list": [] },
+  "annotations": {
+    "list": []
+  },
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -9,23 +11,43 @@
   "panels": [
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "id": 100,
       "panels": [],
       "title": "RPS / Latency (all nginx)",
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
-        "defaults": { "unit": "reqps", "custom": { "fillOpacity": 20, "spanNulls": true } },
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "fillOpacity": 20,
+            "spanNulls": true
+          }
+        },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      },
       "id": 20,
+      "interval": "1s",
       "targets": [
         {
-          "expr": "sum by (method, uri) (rate(isucon_nginx_http_requests_total[15s]))",
+          "expr": "sum by (method, uri) (rate(isucon_nginx_http_requests_total[2s]))",
           "legendFormat": "{{method}} {{uri}}",
           "refId": "A"
         }
@@ -34,21 +56,36 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
-        "defaults": { "unit": "s", "custom": { "fillOpacity": 15, "spanNulls": true } },
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "fillOpacity": 15,
+            "spanNulls": true
+          }
+        },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
       "id": 21,
+      "interval": "1s",
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le, method, uri) (rate(isucon_nginx_http_request_duration_seconds_bucket[30s])))",
+          "expr": "histogram_quantile(0.95, sum by (le, method, uri) (rate(isucon_nginx_http_request_duration_seconds_bucket[2s])))",
           "legendFormat": "p95 {{method}} {{uri}}",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.99, sum by (le, method, uri) (rate(isucon_nginx_http_request_duration_seconds_bucket[30s])))",
+          "expr": "histogram_quantile(0.99, sum by (le, method, uri) (rate(isucon_nginx_http_request_duration_seconds_bucket[2s])))",
           "legendFormat": "p99 {{method}} {{uri}}",
           "refId": "B"
         }
@@ -57,16 +94,31 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
-        "defaults": { "unit": "reqps", "custom": { "fillOpacity": 20, "spanNulls": true } },
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "fillOpacity": 20,
+            "spanNulls": true
+          }
+        },
         "overrides": []
       },
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 9 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
       "id": 22,
+      "interval": "1s",
       "targets": [
         {
-          "expr": "sum by (status) (rate(isucon_nginx_http_requests_total[15s]))",
+          "expr": "sum by (status) (rate(isucon_nginx_http_requests_total[2s]))",
           "legendFormat": "{{status}}",
           "refId": "A"
         }
@@ -75,16 +127,31 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
-        "defaults": { "unit": "reqps", "custom": { "fillOpacity": 20, "spanNulls": true } },
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "fillOpacity": 20,
+            "spanNulls": true
+          }
+        },
         "overrides": []
       },
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 9 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
       "id": 23,
+      "interval": "1s",
       "targets": [
         {
-          "expr": "sum by (instance) (rate(isucon_nginx_http_requests_total[15s]))",
+          "expr": "sum by (instance) (rate(isucon_nginx_http_requests_total[2s]))",
           "legendFormat": "{{instance}}",
           "refId": "A"
         }
@@ -94,43 +161,83 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
       "id": 101,
       "panels": [],
       "title": "Per server (1 column = 1 host)",
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
-        "defaults": { "unit": "percent", "max": 100, "min": 0, "custom": { "fillOpacity": 60, "stacking": { "mode": "normal", "group": "A" }, "spanNulls": true } },
+        "defaults": {
+          "unit": "percent",
+          "max": 100,
+          "min": 0,
+          "custom": {
+            "fillOpacity": 60,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "spanNulls": true
+          }
+        },
         "overrides": []
       },
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 17 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 17
+      },
       "id": 1,
       "repeat": "instance",
       "repeatDirection": "h",
       "maxPerRow": 2,
       "targets": [
         {
-          "expr": "avg by (mode) (rate(node_cpu_seconds_total{instance=\"$instance\", mode=~\"user|system|nice|iowait|irq|softirq|steal\"}[15s])) * 100",
+          "expr": "avg by (mode) (rate(node_cpu_seconds_total{instance=\"$instance\", mode=~\"user|system|nice|iowait|irq|softirq|steal\"}[2s])) * 100",
           "legendFormat": "{{mode}}",
           "refId": "A"
         }
       ],
       "title": "CPU % — $instance",
-      "type": "timeseries"
+      "type": "timeseries",
+      "interval": "1s"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "bytes",
-          "custom": { "fillOpacity": 40, "stacking": { "mode": "normal" }, "spanNulls": true }
+          "custom": {
+            "fillOpacity": 40,
+            "stacking": {
+              "mode": "normal"
+            },
+            "spanNulls": true
+          }
         },
         "overrides": []
       },
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 24 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
       "id": 2,
       "repeat": "instance",
       "repeatDirection": "h",
@@ -148,15 +255,30 @@
         }
       ],
       "title": "Memory — $instance",
-      "type": "timeseries"
+      "type": "timeseries",
+      "interval": "1s"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
-        "defaults": { "unit": "short", "custom": { "fillOpacity": 10, "spanNulls": true } },
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10,
+            "spanNulls": true
+          }
+        },
         "overrides": []
       },
-      "gridPos": { "h": 5, "w": 12, "x": 0, "y": 31 },
+      "gridPos": {
+        "h": 5,
+        "w": 12,
+        "x": 0,
+        "y": 31
+      },
       "id": 24,
       "repeat": "instance",
       "repeatDirection": "h",
@@ -179,110 +301,174 @@
         }
       ],
       "title": "Load — $instance",
-      "type": "timeseries"
+      "type": "timeseries",
+      "interval": "1s"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
-        "defaults": { "unit": "Bps", "custom": { "fillOpacity": 15, "spanNulls": true } },
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "fillOpacity": 15,
+            "spanNulls": true
+          }
+        },
         "overrides": []
       },
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 36 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 36
+      },
       "id": 12,
       "repeat": "instance",
       "repeatDirection": "h",
       "maxPerRow": 2,
       "targets": [
         {
-          "expr": "rate(node_network_receive_bytes_total{instance=\"$instance\", device!~\"lo|veth.*|docker.*|br.*\"}[15s])",
+          "expr": "rate(node_network_receive_bytes_total{instance=\"$instance\", device!~\"lo|veth.*|docker.*|br.*\"}[2s])",
           "legendFormat": "{{device}} rx",
           "refId": "A"
         },
         {
-          "expr": "rate(node_network_transmit_bytes_total{instance=\"$instance\", device!~\"lo|veth.*|docker.*|br.*\"}[15s])",
+          "expr": "rate(node_network_transmit_bytes_total{instance=\"$instance\", device!~\"lo|veth.*|docker.*|br.*\"}[2s])",
           "legendFormat": "{{device}} tx",
           "refId": "B"
         }
       ],
       "title": "Network — $instance",
-      "type": "timeseries"
+      "type": "timeseries",
+      "interval": "1s"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
-        "defaults": { "custom": { "fillOpacity": 15, "spanNulls": true } },
+        "defaults": {
+          "custom": {
+            "fillOpacity": 15,
+            "spanNulls": true
+          }
+        },
         "overrides": []
       },
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 43 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 43
+      },
       "id": 3,
       "repeat": "instance",
       "repeatDirection": "h",
       "maxPerRow": 2,
       "targets": [
         {
-          "expr": "rate(node_disk_reads_completed_total{instance=\"$instance\", device!~\"loop.*|ram.*\"}[15s])",
+          "expr": "rate(node_disk_reads_completed_total{instance=\"$instance\", device!~\"loop.*|ram.*\"}[2s])",
           "legendFormat": "{{device}} read iops",
           "refId": "A"
         },
         {
-          "expr": "rate(node_disk_writes_completed_total{instance=\"$instance\", device!~\"loop.*|ram.*\"}[15s])",
+          "expr": "rate(node_disk_writes_completed_total{instance=\"$instance\", device!~\"loop.*|ram.*\"}[2s])",
           "legendFormat": "{{device}} write iops",
           "refId": "B"
         },
         {
-          "expr": "rate(node_disk_read_bytes_total{instance=\"$instance\", device!~\"loop.*|ram.*\"}[15s])",
+          "expr": "rate(node_disk_read_bytes_total{instance=\"$instance\", device!~\"loop.*|ram.*\"}[2s])",
           "legendFormat": "{{device}} read B/s",
           "refId": "C"
         },
         {
-          "expr": "rate(node_disk_written_bytes_total{instance=\"$instance\", device!~\"loop.*|ram.*\"}[15s])",
+          "expr": "rate(node_disk_written_bytes_total{instance=\"$instance\", device!~\"loop.*|ram.*\"}[2s])",
           "legendFormat": "{{device}} write B/s",
           "refId": "D"
         }
       ],
       "title": "Disk — $instance",
-      "type": "timeseries"
+      "type": "timeseries",
+      "interval": "1s"
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 50 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 50
+      },
       "id": 102,
       "panels": [],
       "title": "Database (MariaDB)",
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "Questions/sec（クライアントからのクエリ数）と Slow queries/sec",
       "fieldConfig": {
-        "defaults": { "unit": "ops", "custom": { "fillOpacity": 20, "spanNulls": true } },
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "fillOpacity": 20,
+            "spanNulls": true
+          }
+        },
         "overrides": []
       },
-      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 51 },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 51
+      },
       "id": 4,
       "targets": [
         {
-          "expr": "rate(mysql_global_status_questions{instance=~\"$instance\"}[15s])",
+          "expr": "rate(mysql_global_status_questions{instance=~\"$instance\"}[2s])",
           "legendFormat": "QPS {{instance}}",
           "refId": "A"
         },
         {
-          "expr": "rate(mysql_global_status_slow_queries{instance=~\"$instance\"}[15s])",
+          "expr": "rate(mysql_global_status_slow_queries{instance=~\"$instance\"}[2s])",
           "legendFormat": "slow QPS {{instance}}",
           "refId": "B"
         }
       ],
       "title": "MariaDB QPS",
-      "type": "timeseries"
+      "type": "timeseries",
+      "interval": "1s"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "接続数・実行中スレッド・上限 (max_connections)",
       "fieldConfig": {
-        "defaults": { "unit": "short", "custom": { "fillOpacity": 15, "spanNulls": true } },
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 15,
+            "spanNulls": true
+          }
+        },
         "overrides": []
       },
-      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 51 },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 51
+      },
       "id": 25,
       "targets": [
         {
@@ -302,41 +488,76 @@
         }
       ],
       "title": "MariaDB Connections",
-      "type": "timeseries"
+      "type": "timeseries",
+      "interval": "1s"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "InnoDB buffer pool hit ratio（ディスク読みを避けられた割合）",
       "fieldConfig": {
-        "defaults": { "unit": "percentunit", "min": 0, "max": 1, "custom": { "fillOpacity": 20, "spanNulls": true } },
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "fillOpacity": 20,
+            "spanNulls": true
+          }
+        },
         "overrides": []
       },
-      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 51 },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 51
+      },
       "id": 26,
       "targets": [
         {
-          "expr": "1 - (rate(mysql_global_status_innodb_buffer_pool_reads{instance=~\"$instance\"}[1m]) / clamp_min(rate(mysql_global_status_innodb_buffer_pool_read_requests{instance=~\"$instance\"}[1m]), 1))",
+          "expr": "1 - (rate(mysql_global_status_innodb_buffer_pool_reads{instance=~\"$instance\"}[2s]) / clamp_min(rate(mysql_global_status_innodb_buffer_pool_read_requests{instance=~\"$instance\"}[2s]), 1))",
           "legendFormat": "buffer hit {{instance}}",
           "refId": "A"
         }
       ],
       "title": "MariaDB Buffer pool hit",
-      "type": "timeseries"
+      "type": "timeseries",
+      "interval": "1s"
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 58 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 58
+      },
       "id": 103,
       "panels": [],
       "title": "Logs (by role)",
       "type": "row"
     },
     {
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
       "description": "nginx access.log（RPS 用メトリクス抽出後の本文）。job=nginx-access",
-      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 59 },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 59
+      },
       "id": 5,
-      "options": { "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true },
+      "options": {
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
       "targets": [
         {
           "expr": "{job=\"nginx-access\", host=~\"$instance\"}",
@@ -347,11 +568,23 @@
       "type": "logs"
     },
     {
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
       "description": "nginx journal + error.log。job=nginx|nginx-error",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 68 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 68
+      },
       "id": 50,
-      "options": { "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true },
+      "options": {
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
       "targets": [
         {
           "expr": "{job=~\"nginx|nginx-error\", host=~\"$instance\"}",
@@ -362,11 +595,23 @@
       "type": "logs"
     },
     {
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
       "description": "MariaDB journal + error.log。job=mariadb|mysql-error",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 68 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 68
+      },
       "id": 51,
-      "options": { "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true },
+      "options": {
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
       "targets": [
         {
           "expr": "{job=~\"mariadb|mysql-error\", host=~\"$instance\"}",
@@ -377,11 +622,23 @@
       "type": "logs"
     },
     {
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
       "description": "アプリ journal。job=app",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 76 },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 76
+      },
       "id": 52,
-      "options": { "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true },
+      "options": {
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
       "targets": [
         {
           "expr": "{job=\"app\", host=~\"$instance\"}",
@@ -392,27 +649,42 @@
       "type": "logs"
     }
   ],
-  "refresh": "5s",
+  "refresh": "1s",
   "schemaVersion": 39,
-  "tags": ["isucon"],
+  "tags": [
+    "isucon"
+  ],
   "templating": {
     "list": [
       {
-        "current": { "selected": true, "text": "All", "value": "$__all" },
-        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
         "definition": "label_values(node_uname_info, instance)",
         "includeAll": true,
         "label": "server",
         "multi": true,
         "name": "instance",
-        "query": { "query": "label_values(node_uname_info, instance)", "refId": "StandardVariableQuery" },
+        "query": {
+          "query": "label_values(node_uname_info, instance)",
+          "refId": "StandardVariableQuery"
+        },
         "refresh": 2,
         "sort": 1,
         "type": "query"
       }
     ]
   },
-  "time": { "from": "now-15m", "to": "now" },
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
   "title": "ISUCON Overview",
   "uid": "isucon-overview",
   "version": 1

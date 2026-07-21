@@ -17,6 +17,8 @@
       ansible.builtin.stat:
         path: "{{ item }}"
       loop: "{{ config_backup_search_paths }}"
+      loop_control:
+        label: "{{ item }}"
       register: backup_path_stats
 
     - name: Ansibleバックアップファイルを探す
@@ -27,6 +29,8 @@
         file_type: file
         recurse: true
       loop: "{{ backup_path_stats.results }}"
+      loop_control:
+        label: "{{ item.item }}"
       when: item.stat.exists | default(false) and item.stat.isdir | default(false)
       register: backup_find_results
 
