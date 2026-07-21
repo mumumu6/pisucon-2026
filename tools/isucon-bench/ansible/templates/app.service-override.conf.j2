@@ -11,6 +11,8 @@
 LimitNOFILE=65535
 RuntimeDirectory={{ app_runtime_directory }}
 RuntimeDirectoryMode=0755
+# 公式 unit にも EnvironmentFile がある年が大半。無いイレギュラーでもここに足して確実に渡す。
+EnvironmentFile=-{{ remote_project_root }}/env.sh
 {% if app_listen_unix | default(true) | bool %}
 # nginx と同居 → unix socket（nginx upstream と同じパス）
 Environment=SERVER_APP_SOCK={{ app_unix_socket }}
