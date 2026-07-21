@@ -12,7 +12,7 @@ BENCH_SESSION ?= $(shell date +%Y%m%d-%H%M%S)
 
 .PHONY: help bootstrap pull build restart fleet-setup fleet-enable fleet-disable \
 	mysql-tune collect collect-backups instrument-on instrument-off \
-	pprof-view netdata-view finish publish bench maji
+	pprof-view netdata-view finish publish bench
 
 help: ## Makeターゲットと用途を表示する
 	@awk 'BEGIN { FS = ":.*## "; printf "Usage: make <target> [OPTION=value]\n\n" } /^[a-zA-Z0-9_-]+:.*## / { printf "  %-18s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -82,10 +82,8 @@ collect: ## 結果だけ再取得。例: make collect SESSION=20260719-123000
 publish: ## 取得済み解析結果からGitHub Issueを作る。例: make publish DIR=20260719-123000
 	@$(PUBLISH_SCRIPT) "$(DIR)"
 
-finish: ## 最終計測前にnetdata・slow query・pprofを外す（make maji と同じ）
+finish: ## 最終計測前にnetdata・slow query・pprofを外す
 	@$(PPROF_SCRIPT) off
 	@$(MAKE) --no-print-directory pull
 	@$(PLAYBOOK) --extra-vars monitor_state=off $(ANSIBLE_DIR)/monitor.yml
 	@$(PLAYBOOK) --extra-vars instrument_state=off $(ANSIBLE_DIR)/instrument.yml
-
-maji: finish ## finish の別名（本気計測前）
