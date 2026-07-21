@@ -68,7 +68,7 @@ if [[ "$host_arg" == all ]]; then
   exit 0
 fi
 
-# 引数なし: 既にトンネル済みならそれで終了、否则 reporter へ
+# 引数なし: 既にトンネル済みならそれで終了、なければ reporter へ
 if [[ -z "$host_arg" ]]; then
   if curl -fsS --max-time 1 "http://127.0.0.1:${base_port}/api/v1/info" >/dev/null 2>&1; then
     echo "already: http://localhost:${base_port}"
