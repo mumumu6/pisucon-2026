@@ -50,7 +50,7 @@ make pull            # 全サーバーへ git sync
 make build           # pull + systemd + ビルド + app/nginx 再起動
 make bench           # 計測・解析・回収
 make bench PUBLISH=true
-make finish          # 本気計測前に計測負荷を外す（= make maji）
+make finish          # 本気計測前に計測負荷を外す
 make collect SESSION=20260719-123000
 ```
 
@@ -73,7 +73,7 @@ make collect SESSION=20260719-123000
 | `instrument-on` / `off` | pprof 配置/削除 |
 | `pprof-view` / `netdata-view` | 手元でプロファイル / Netdata を見る |
 | `restart` | 全ホスト OS 再起動（追試用） |
-| `finish` / `maji` | 最終計測前に計測系を外す |
+| `finish` | 最終計測前に計測系を外す |
 
 ## 構成
 
