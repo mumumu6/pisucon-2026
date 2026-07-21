@@ -9,13 +9,13 @@ all:
     app:
       hosts:
         isucon-1:
-          ansible_host: 18.179.7.251
-          private_ip: 10.0.0.29
+          ansible_host: 13.115.78.34
+          private_ip: 10.0.0.137
     db:
       hosts:
         isucon-2:
-          ansible_host: 3.112.172.113
-          private_ip: 10.0.0.157
+          ansible_host: 175.41.223.208
+          private_ip: 10.0.0.207
     nginx:
       hosts:
         isucon-1:
