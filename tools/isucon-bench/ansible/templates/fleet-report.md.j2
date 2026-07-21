@@ -1,3 +1,15 @@
+{#
+  手元に回収したベンチ結果から作る統合レポート（log/<SESSION>/REPORT.md）。
+
+  Jinja 変数 / 参照:
+    session_id         … ベンチセッション ID（例: 20260719-123000）
+    local_session_dir  … 手元のセッションディレクトリ（例: .../log/20260719-123000）
+    groups['reporter'] … スコア・revision の基準ホスト（ちょうど1台）
+    groups['nginx']    … alp.txt を持つホスト
+    groups['db']       … pt-query-digest.txt を持つホスト
+    groups['app']      … pprof.txt を持つホスト
+    groups['all']      … netdata.txt を持つホスト
+#}
 # ISUCON benchmark report
 
 - Session: `{{ session_id }}`

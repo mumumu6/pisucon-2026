@@ -1,6 +1,16 @@
-# conf.d は http コンテキストに include される。大会で path が違ったらこのファイルを直接直す。
-# 必要なときだけ差し込む変数: frontend_public_dir / access_log / app_unix_socket
+{#
+  nginx サイト設定 → /etc/nginx/conf.d/<app_name>.conf に配置される。
+  conf.d は nginx.conf の http{} 内で include されるので、ここに log_format / upstream / server を書いてよい。
 
+  Jinja 変数（group_vars/all.yml）:
+    app_unix_socket      … アプリの unix domain socket パス（例: /run/isucondition/isucondition.sock）
+    access_log           … access log の出力先（例: /var/log/nginx/access.log）。alp もここを読む
+    frontend_public_dir  … 静的ファイルの document root（例: /home/isucon/webapp/public）
+
+  location / gzip など大会固有の中身は変数化せず、このファイルを直接編集する。
+#}
+
+# alp 用の LTSV ログ形式。名前 ltsv は access_log の第2引数および alp の形式名と揃える。
 log_format ltsv "time:$time_local"
                 "\thost:$remote_addr"
                 "\tforwardedfor:$http_x_forwarded_for"
@@ -15,31 +25,36 @@ log_format ltsv "time:$time_local"
                 "\tapptime:$upstream_response_time"
                 "\tvhost:$host";
 
+# アプリへの upstream。proxy_pass http://app; から参照する。
 upstream app {
-    # 同一ホスト: unix socket。分離構成なら例えば次に差し替え:
-    # server 10.0.0.202:3000;
+    # app_unix_socket: アプリが待ち受ける socket（systemd の SERVER_APP_SOCK と同じにする）
+    # 同一ホスト: unix socket。nginx と app を分けたときは例えば次に差し替え:
+    #   server 10.0.0.202:3000;
     server unix:{{ app_unix_socket }};
-    keepalive 256;
+    keepalive 256;  # upstream へのアイドル接続の再利用数
 }
 
 server {
-    listen 80;
+    listen 80;          # ベンチが叩く HTTP ポート
     listen [::]:80;
     server_name _;
 
-    client_body_buffer_size 256k;
+    client_body_buffer_size 256k;  # リクエストボディ用バッファ
+    # access_log: ログファイルパス（group_vars）。形式名 ltsv は上の log_format と一致させる
     access_log {{ access_log }} ltsv;
 
-    # 切るときは gzip off; にする
+    # JSON を軽く圧縮。切るときは gzip off;
     gzip on;
     gzip_comp_level 1;
     gzip_min_length 1024;
     gzip_types application/json;
     gzip_vary on;
 
+    # frontend_public_dir: フロントのビルド成果物ディレクトリ（group_vars）
     root {{ frontend_public_dir }};
     index index.html;
 
+    # ハッシュ付き静的アセットは長期キャッシュ
     location ^~ /assets/ {
         try_files $uri =404;
         access_log off;
@@ -47,6 +62,7 @@ server {
         add_header Cache-Control "public, immutable";
     }
 
+    # 初期化 API → アプリへ
     location = /initialize {
         proxy_pass http://app;
         proxy_http_version 1.1;
@@ -57,6 +73,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # 通常 API → アプリへ
     location ^~ /api/ {
         proxy_pass http://app;
         proxy_http_version 1.1;
@@ -67,7 +84,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # SPA。不要なら try_files $uri $uri/ =404; に変える
+    # SPA: 存在しないパスは index.html へ。不要なら try_files $uri $uri/ =404;
     location / {
         try_files $uri $uri/ /index.html;
     }
