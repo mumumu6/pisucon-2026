@@ -1,36 +1,39 @@
 ---
-- name: スロークエリログ用ディレクトリを用意する
-  ansible.builtin.file:
-    path: "{{ slow_log | dirname }}"
-    state: directory
-    owner: mysql
-    group: adm
-    mode: "0750"
+# MariaDB の設定をまとめて反映する（slow log 置き場 / 性能 cnf / リモート権限）
+- name: MariaDBの設定を反映する
+  block:
+    - name: スローログ用の置き場を用意する
+      ansible.builtin.file:
+        path: "{{ slow_log | dirname }}"
+        state: directory
+        owner: mysql
+        group: adm
+        mode: "0750"
 
-- name: スロークエリログファイルを用意する
-  ansible.builtin.file:
-    path: "{{ slow_log }}"
-    state: touch
-    owner: mysql
-    group: adm
-    mode: "0640"
-    modification_time: preserve
-    access_time: preserve
+    - name: スローログファイルを用意する
+      ansible.builtin.file:
+        path: "{{ slow_log }}"
+        state: touch
+        owner: mysql
+        group: adm
+        mode: "0640"
+        modification_time: preserve
+        access_time: preserve
 
-- name: MariaDBの性能・待ち受け設定を配置する
-  ansible.builtin.template:
-    src: templates/mysql-performance.cnf.j2
-    dest: "{{ mysql_performance_cnf }}"
-    owner: root
-    group: root
-    mode: "0644"
-    backup: true
-  notify: MariaDBを再起動する
+    - name: 性能設定を反映する
+      ansible.builtin.template:
+        src: templates/mysql-performance.cnf.j2
+        dest: "{{ mysql_performance_cnf }}"
+        owner: root
+        group: root
+        mode: "0644"
+        backup: true
+      notify: MariaDBを再起動する
 
-# cnf ではユーザー権限は書けない。初期は localhost だけなのでリモート用を作る。
-- name: アプリからのリモート接続用ユーザーを許可する
-  ansible.builtin.command:
-    argv:
-      - "{{ mysql_admin_command }}"
-      - --execute={{ mysql_remote_grant_sql }}
-  changed_when: true
+    # cnf ではユーザー権限は書けない。初期は localhost だけなのでリモート用を作る。
+    - name: リモート接続用ユーザーを許可する
+      ansible.builtin.command:
+        argv:
+          - "{{ mysql_admin_command }}"
+          - --execute={{ mysql_remote_grant_sql }}
+      changed_when: true

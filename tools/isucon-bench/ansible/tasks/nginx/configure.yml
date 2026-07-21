@@ -1,0 +1,71 @@
+---
+# Nginx 周りの設定をまとめて反映する。
+# systemd drop-in は現状 LimitNOFILE 程度。nginx.conf の worker 系とサイト設定も含む。
+- name: Nginxの設定を反映する
+  become: true
+  block:
+    - name: systemd drop-in 用ディレクトリを用意する
+      ansible.builtin.file:
+        path: /etc/systemd/system/nginx.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    # drop-in の中身は今のところ LimitNOFILE くらい
+    - name: systemd drop-in を反映する
+      ansible.builtin.template:
+        src: templates/nginx.service-override.conf.j2
+        dest: /etc/systemd/system/nginx.service.d/override.conf
+        owner: root
+        group: root
+        mode: "0644"
+        backup: true
+      notify: Nginxを再起動する
+
+    - name: 旧 drop-in 名があれば片付ける
+      ansible.builtin.file:
+        path: /etc/systemd/system/nginx.service.d/limit-nofile.conf
+        state: absent
+      notify: Nginxを再起動する
+
+    - name: nginx.conf を反映する
+      ansible.builtin.replace:
+        path: /etc/nginx/nginx.conf
+        regexp: 'worker_connections\s+\d+;'
+        replace: 'worker_connections {{ nginx_worker_connections }};'
+        backup: true
+      notify: Nginxを再起動する
+
+    - name: nginx.conf に worker_rlimit_nofile を反映する
+      ansible.builtin.lineinfile:
+        path: /etc/nginx/nginx.conf
+        regexp: '^\s*worker_rlimit_nofile\s+'
+        line: "worker_rlimit_nofile {{ nginx_limit_nofile }};"
+        insertafter: '^worker_processes'
+        backup: true
+      notify: Nginxを再起動する
+
+    - name: 既定サイトを外す
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Nginxを再起動する
+
+    - name: サイト設定を反映する
+      ansible.builtin.template:
+        src: templates/nginx.site.conf.j2
+        dest: "{{ nginx_conf_dest }}"
+        owner: root
+        group: root
+        mode: "0644"
+        backup: true
+
+    - name: nginx -t で検証する
+      ansible.builtin.command:
+        argv: [nginx, -t]
+      changed_when: false
+
+    - name: Nginxを再起動する
+      ansible.builtin.include_tasks: tasks/nginx/restart.yml
+      when: restart_nginx | default(true)

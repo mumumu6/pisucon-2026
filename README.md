@@ -89,7 +89,7 @@ Makefile
     │   ├── tasks/
     │   │   ├── common/   # packages, github-ssh, git-sync, fleet-services
     │   │   ├── app/      # packages, systemd, build, restart, deploy, pprof
-    │   │   ├── nginx/    # packages, alp, tuning, site, restart
+    │   │   ├── nginx/    # packages, alp, configure, site, restart
     │   │   ├── db/       # packages, performance, restart, slow-query
     │   │   ├── monitor/  # toggle（netdata + slow query）
     │   │   └── bench/    # prepare, measure, analyze-*

@@ -26,7 +26,7 @@
         - name: アプリ用パッケージを導入する
           tags: [packages]
           ansible.builtin.include_tasks: tasks/app/packages.yml
-        - name: アプリのsystemdを設定する
+        - name: アプリのsystemd設定を反映する
           ansible.builtin.include_tasks: tasks/app/systemd.yml
           vars:
             force_daemon_reload: true
@@ -38,7 +38,7 @@
         - name: DB用パッケージを導入する
           tags: [packages]
           ansible.builtin.include_tasks: tasks/db/packages.yml
-        - name: MariaDB性能設定を反映する
+        - name: MariaDBの設定を反映する
           tags: [mysql]
           ansible.builtin.include_tasks: tasks/db/performance.yml
 
@@ -52,10 +52,8 @@
         - name: Alpを導入する
           tags: [alp]
           ansible.builtin.include_tasks: tasks/nginx/alp.yml
-        - name: Nginxをチューニングする
-          ansible.builtin.include_tasks: tasks/nginx/tuning.yml
-        - name: Nginxサイト設定を配置する
-          ansible.builtin.include_tasks: tasks/nginx/site.yml
+        - name: Nginxの設定を反映する
+          ansible.builtin.include_tasks: tasks/nginx/configure.yml
           vars:
             restart_nginx: true
 

@@ -1,28 +1,34 @@
 ---
-# setup / build から共有。アプリの systemd drop-in を反映する。
+# setup / build から共有。アプリの systemd 設定を反映する。
+# drop-in には LimitNOFILE / GOGC / GOMEMLIMIT / unix socket などをまとめて書く。
 # force_daemon_reload: true なら変更がなくても daemon-reload する。
-- name: Goアプリのsystemd overrideディレクトリを作る
-  ansible.builtin.file:
-    path: "/etc/systemd/system/{{ app_service }}.d"
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
+- name: アプリのsystemd設定を反映する
   become: true
+  block:
+    - name: override 用ディレクトリを用意する
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ app_service }}.d"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
 
-- name: GoアプリのLimitNOFILE・GOGC・GOMEMLIMIT・unix socketを設定する
-  ansible.builtin.template:
-    src: templates/app.service-override.conf.j2
-    dest: "/etc/systemd/system/{{ app_service }}.d/limit-nofile.conf"
-    owner: root
-    group: root
-    mode: "0644"
-    backup: true
-  become: true
-  register: app_systemd_override
+    - name: systemd drop-in を反映する
+      ansible.builtin.template:
+        src: templates/app.service-override.conf.j2
+        dest: "/etc/systemd/system/{{ app_service }}.d/override.conf"
+        owner: root
+        group: root
+        mode: "0644"
+        backup: true
+      register: app_systemd_override
 
-- name: systemdをdaemon-reloadする
-  ansible.builtin.systemd:
-    daemon_reload: true
-  become: true
-  when: app_systemd_override is changed or (force_daemon_reload | default(false))
+    - name: 旧 drop-in 名があれば片付ける
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ app_service }}.d/limit-nofile.conf"
+        state: absent
+
+    - name: daemon-reload する
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: app_systemd_override is changed or (force_daemon_reload | default(false))
