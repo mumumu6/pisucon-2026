@@ -38,10 +38,19 @@ tunnel() {
     return 0
   fi
 
+  # ポートは開いているが health が取れない = 古いトンネル等。張り直す。
   if ss -ltn 2>/dev/null | grep -qE ":${port}\\s"; then
-    echo "port ${port} is already in use (Grafana tunnel?)" >&2
-    echo "try: http://localhost:${port}" >&2
-    return 1
+    echo "port ${port} is stale; replacing local listeners..." >&2
+    # shellcheck disable=SC2009
+    ps -eo pid=,args= | awk -v p="$port" '
+      $0 ~ ("-L " p ":127.0.0.1:3000") || $0 ~ ("-L " p ":localhost:3000") { print $1 }
+    ' | xargs -r kill 2>/dev/null || true
+    sleep 1
+    if ss -ltn 2>/dev/null | grep -qE ":${port}\\s"; then
+      echo "port ${port} is still in use" >&2
+      echo "try: GRAFANA_LOCAL_PORT=3001 make grafana-view" >&2
+      return 1
+    fi
   fi
 
   args=(-o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -N -L "${port}:127.0.0.1:3000")

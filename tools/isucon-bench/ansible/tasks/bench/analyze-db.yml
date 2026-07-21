@@ -30,7 +30,15 @@
 
 - name: スロークエリ解析結果を保存する
   ansible.builtin.copy:
-    content: "{{ slow_query_result.stdout | default('No slow-query data collected.', true) }}\n"
+    content: >-
+      {{ slow_query_result.stdout
+         if (slow_query_result is defined
+             and not (slow_query_result.skipped | default(false))
+             and (slow_query_result.stdout | default('') | length) > 0)
+         else (
+           'No slow-query data collected (log empty or slow_query_log was OFF).'
+           if (session_slow_log_stat.stat.size | default(0)) == 0
+           else 'No slow-query data collected.'
+         ) }}{{ '\n' }}
     dest: "{{ session_dir }}/pt-query-digest.txt"
     mode: "0644"
-  when: slow_query_result is defined

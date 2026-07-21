@@ -1,10 +1,10 @@
 ---
-# monitor_state: on | off
+# monitor_state: "on" | "off"（YAML の素の on は boolean。比較は | bool を使う）
 - name: 観測エージェントを切り替える
   ansible.builtin.systemd:
     name: "{{ item }}"
-    state: "{{ 'started' if monitor_state == 'on' else 'stopped' }}"
-    enabled: "{{ monitor_state == 'on' }}"
+    state: "{{ 'started' if monitor_state | bool else 'stopped' }}"
+    enabled: "{{ monitor_state | bool }}"
   loop:
     - node_exporter
     - alloy
@@ -15,8 +15,8 @@
 - name: mysqld_exporter を切り替える
   ansible.builtin.systemd:
     name: mysqld_exporter
-    state: "{{ 'started' if monitor_state == 'on' else 'stopped' }}"
-    enabled: "{{ monitor_state == 'on' }}"
+    state: "{{ 'started' if monitor_state | bool else 'stopped' }}"
+    enabled: "{{ monitor_state | bool }}"
   become: true
   failed_when: false
   when:
@@ -26,7 +26,7 @@
 - name: 中央スタックを切り替える
   ansible.builtin.command:
     argv: >-
-      {{ ['docker', 'compose', 'start'] if monitor_state == 'on'
+      {{ ['docker', 'compose', 'start'] if (monitor_state | bool)
          else ['docker', 'compose', 'stop'] }}
     chdir: "{{ observe_compose_dir }}"
   become: true

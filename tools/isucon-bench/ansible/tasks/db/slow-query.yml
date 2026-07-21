@@ -1,10 +1,10 @@
 ---
-# slow_query_state: on | off
+# slow_query_state: "on" | "off"（YAML の素の on は boolean になるので文字列推奨）
 - name: MariaDBのスロークエリログを制御する
   ansible.builtin.command:
     argv:
       - "{{ mysql_admin_command }}"
       - >-
-        --execute={% if slow_query_state == 'on' %}SET GLOBAL long_query_time={{ mysql_slow_query_time }}; SET GLOBAL slow_query_log='ON';{% else %}SET GLOBAL slow_query_log='OFF';{% endif %}
+        --execute={% if slow_query_state | bool %}SET GLOBAL long_query_time={{ mysql_slow_query_time }}; SET GLOBAL slow_query_log=1;{% else %}SET GLOBAL slow_query_log=0;{% endif %}
   become: true
   changed_when: true

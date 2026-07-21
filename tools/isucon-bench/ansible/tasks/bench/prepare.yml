@@ -37,7 +37,7 @@
 - name: 計測中の観測スタックを起動する
   ansible.builtin.include_tasks: tasks/observe/toggle.yml
   vars:
-    monitor_state: on
+    monitor_state: "on"
   when: observe_enabled | bool
 
 - name: Nginxのaccess logを確認する
@@ -75,5 +75,6 @@
 - name: MariaDBのスロークエリログを有効にする
   ansible.builtin.include_tasks: tasks/db/slow-query.yml
   vars:
-    slow_query_state: on
+    # YAML の on は boolean になるので必ず文字列で渡す
+    slow_query_state: "on"
   when: inventory_hostname in groups['db']
