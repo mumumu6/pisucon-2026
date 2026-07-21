@@ -1,9 +1,6 @@
 ---
 # MariaDB の設定をまとめて反映する（slow log 置き場 / 性能 cnf / リモート権限）
-# bind-address / GRANT は inventory の app↔db 分離有無から自動。
-- name: トポロジを解決する
-  ansible.builtin.include_tasks: tasks/common/topology-facts.yml
-
+# bind-address は常に 0.0.0.0、リモート GRANT も常に行う（1台構成でも害は少ない）。
 - name: MariaDBの設定を反映する
   block:
     - name: スローログ用の置き場を用意する
@@ -34,8 +31,7 @@
         backup: true
       notify: MariaDBを再起動する
 
-    # cnf ではユーザー権限は書けない。初期は localhost だけなのでリモート用を作る。
-    # ユーザー/パスは group_vars の mysql_user / mysql_password を使う。
+    # cnf ではユーザー権限は書けない。初期は localhost だけなので '%' も許可する。
     - name: リモート接続用ユーザーを許可する
       ansible.builtin.shell: |
         set -euo pipefail
@@ -43,4 +39,3 @@
       args:
         executable: /bin/bash
       changed_when: true
-      when: db_has_remote_clients | bool

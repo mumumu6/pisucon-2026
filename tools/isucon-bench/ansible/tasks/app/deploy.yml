@@ -1,11 +1,11 @@
 ---
-# systemd drop-in → env.sh → ビルド → 再起動
+# systemd drop-in → MYSQL_HOST 調整 → ビルド → 再起動
 - name: アプリのsystemd overrideを配置する
   ansible.builtin.include_tasks: tasks/app/systemd.yml
   vars:
     force_daemon_reload: "{{ force_daemon_reload | default(true) }}"
 
-- name: env.sh を配置する
+- name: MYSQL_HOST を inventory から合わせる
   ansible.builtin.include_tasks: tasks/app/env.yml
 
 - name: アプリをビルドする

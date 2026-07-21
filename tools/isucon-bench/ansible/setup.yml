@@ -15,10 +15,6 @@
       tags: [common, packages]
       ansible.builtin.include_tasks: tasks/common/packages.yml
 
-    - name: inventory の private_ip を /etc/hosts に反映する
-      tags: [common, hosts]
-      ansible.builtin.include_tasks: tasks/common/hosts.yml
-
     - name: GitHub用SSH鍵を配置する
       tags: [common, github]
       ansible.builtin.include_tasks: tasks/common/github-ssh.yml
@@ -34,7 +30,7 @@
           ansible.builtin.include_tasks: tasks/app/systemd.yml
           vars:
             force_daemon_reload: true
-        - name: env.sh を配置する
+        - name: MYSQL_HOST を inventory から合わせる
           ansible.builtin.include_tasks: tasks/app/env.yml
 
     - name: DB役割をセットアップする

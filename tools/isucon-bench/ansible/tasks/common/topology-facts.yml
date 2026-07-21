@@ -1,6 +1,6 @@
 ---
 # inventory の役割と private_ip から、接続先を自動で決める。
-# nginx / app / db / env.sh など、接続に関わるテンプレはこの fact を使う。
+# nginx / app / MYSQL_HOST など、接続に関わる設定はこの fact を使う。
 - name: トポロジ用の接続先を決める
   ansible.builtin.set_fact:
     topology_app_host: "{{ groups['app'][0] }}"
@@ -18,9 +18,3 @@
     app_listen_unix: "{{ inventory_hostname in groups.get('nginx', []) }}"
     # この app ホストに db もいる → MYSQL_HOST=127.0.0.1
     app_db_colocated: "{{ inventory_hostname in groups.get('db', []) }}"
-    # この db ホスト以外に app がいる → bind 0.0.0.0 + リモート GRANT が必要
-    db_has_remote_clients: >-
-      {{ groups.get('app', [])
-         | reject('equalto', inventory_hostname)
-         | list
-         | length > 0 }}

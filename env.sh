@@ -1,7 +1,5 @@
-# このファイルは Ansible（tasks/app/env.yml）がサーバー上で管理する。
-# 手元の編集は templates/env.sh.j2 / group_vars の mysql_*・app_env_extra を正とする。
-# MYSQL_HOST は inventory の db.private_ip（同居なら 127.0.0.1）から自動設定される。
-# git pull 後も Ansible が再配置する（make pull / bootstrap / build）。
+# サーバー初期配布の env.sh（大会固有の値が入っている想定）。
+# Ansible は MYSQL_HOST= の行だけ inventory に合わせて書き換える（他行は触らない）。
 MYSQL_HOST="127.0.0.1"
 MYSQL_PORT=3306
 MYSQL_USER=isucon

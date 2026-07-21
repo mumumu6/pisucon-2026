@@ -25,11 +25,10 @@ sudo apt install -y ansible jq git gh
 | --- | --- | --- |
 | nginx → app | unix socket | `private_ip:app_listen_port`（app 複数なら全部） |
 | app listen | `SERVER_APP_SOCK` | `SERVER_APP_PORT` |
-| app → db（`env.sh`） | `127.0.0.1` | db の `private_ip` |
-| MariaDB bind / GRANT | `127.0.0.1` / GRANT なし | `0.0.0.0` + `mysql_user` でリモート許可 |
-| `/etc/hosts` | inventory の `private_ip` とホスト名を自動登録 | 同上 |
+| `env.sh` の `MYSQL_HOST` のみ | `127.0.0.1` | db の `private_ip` |
 
-`make pull` 後も `env.sh` は inventory 由来の値で再配置される。
+MariaDB は構成によらず `bind-address=0.0.0.0` + リモート GRANT。  
+`env.sh` はサーバー配布のファイルを正とし、Ansible は `MYSQL_HOST=` 行だけ書き換える（他の大会固有変数は触らない）。
 
 ```bash
 make bootstrap
@@ -96,7 +95,7 @@ Makefile
     │   ├── setup.yml / build.yml / bench.yml / …  # 薄い playbook（組み立てだけ）
     │   ├── handlers/main.yml
     │   ├── tasks/
-    │   │   ├── common/   # packages, hosts, github-ssh, git-sync, fleet-services
+    │   │   ├── common/   # packages, github-ssh, git-sync, fleet-services
     │   │   ├── app/      # packages, systemd, build, restart, deploy, pprof
     │   │   ├── nginx/    # packages, alp, configure, site, restart
     │   │   ├── db/       # packages, performance, restart, slow-query

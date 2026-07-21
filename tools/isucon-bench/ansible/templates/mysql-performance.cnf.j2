@@ -2,21 +2,15 @@
   MariaDB 性能設定 → mysql_performance_cnf（例: /etc/mysql/mariadb.conf.d/99-isucon-performance.cnf）
   数値をいじるときはこのファイルを直接直して make mysql-tune。
 
-  Jinja / set_fact:
-    slow_log               … スロークエリログのパス（group_vars）
-    db_has_remote_clients  … inventory 上、この db 以外に app がいるか（topology-facts）
+  Jinja 変数（group_vars/all.yml）:
+    slow_log … スロークエリログのファイルパス（bench の truncate / pt-query-digest も同じパスを使う）
 #}
 # OS/電源断時、直近およそ1秒分の更新が失われる可能性がある（flush_log_at_trx_commit=2）。
 # bind-address は 50-server.cnf の 127.0.0.1 を上書きする（ファイル名 99- で後勝ち）。
 
 [mysqld]
-{% if db_has_remote_clients | bool %}
-# 分離構成 → 他ホストの app から繋ぐため全インターフェースで待受
+# 常に全インターフェースで待受（分離構成でも手を入れなくてよい。1台でも害は少ない）
 bind-address = 0.0.0.0
-{% else %}
-# 1台構成（app と db 同居）→ localhost のみ
-bind-address = 127.0.0.1
-{% endif %}
 slow_query_log = 1
 # slow_log: スローログの出力先（group_vars と一致させる）
 slow_query_log_file = {{ slow_log }}
