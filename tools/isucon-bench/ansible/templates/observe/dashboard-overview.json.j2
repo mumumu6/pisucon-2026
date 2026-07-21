@@ -324,20 +324,71 @@
       "type": "timeseries"
     },
     {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 58 },
+      "id": 103,
+      "panels": [],
+      "title": "Logs (by role)",
+      "type": "row"
+    },
+    {
       "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 58 },
+      "description": "nginx access.log（RPS 用メトリクス抽出後の本文）。job=nginx-access",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 59 },
       "id": 5,
-      "repeat": "instance",
-      "repeatDirection": "h",
-      "maxPerRow": 2,
       "options": { "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true },
       "targets": [
         {
-          "expr": "{host=\"$instance\"}",
+          "expr": "{job=\"nginx-access\", host=~\"$instance\"}",
           "refId": "A"
         }
       ],
-      "title": "Logs — $instance",
+      "title": "access.log",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "loki" },
+      "description": "nginx journal + error.log。job=nginx|nginx-error",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 68 },
+      "id": 50,
+      "options": { "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true },
+      "targets": [
+        {
+          "expr": "{job=~\"nginx|nginx-error\", host=~\"$instance\"}",
+          "refId": "A"
+        }
+      ],
+      "title": "nginx (journal / error)",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "loki" },
+      "description": "MariaDB journal + error.log。job=mariadb|mysql-error",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 68 },
+      "id": 51,
+      "options": { "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true },
+      "targets": [
+        {
+          "expr": "{job=~\"mariadb|mysql-error\", host=~\"$instance\"}",
+          "refId": "A"
+        }
+      ],
+      "title": "db (MariaDB / error)",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "loki" },
+      "description": "アプリ journal。job=app",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 76 },
+      "id": 52,
+      "options": { "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true },
+      "targets": [
+        {
+          "expr": "{job=\"app\", host=~\"$instance\"}",
+          "refId": "A"
+        }
+      ],
+      "title": "app",
       "type": "logs"
     }
   ],
