@@ -1,0 +1,109 @@
+---
+# 本番の詳細ログを手元へ取る（次の make bench / prepare の truncate 前に叩く）。
+# SESSION あり: log/<SESSION>/raw/<host>/
+# SESSION なし: log/raw/<raw_log_id>/<host>/
+- name: 詳細ログの保存先を決める
+  hosts: all
+  gather_facts: false
+  run_once: true
+  vars:
+    requested_session: ""
+    raw_log_id: ""
+  tasks:
+    - name: 保存先 ID を決める
+      ansible.builtin.set_fact:
+        selected_raw_id: >-
+          {{ requested_session if (requested_session | default('') | length) > 0
+             else (raw_log_id if (raw_log_id | default('') | length) > 0
+                   else (lookup('pipe', 'date +%Y%m%d-%H%M%S'))) }}
+      delegate_to: localhost
+      delegate_facts: true
+
+    - name: 手元の保存ルートを決める
+      ansible.builtin.set_fact:
+        local_raw_root: >-
+          {{ local_log_root + '/' + hostvars['localhost']['selected_raw_id'] + '/raw'
+             if (requested_session | default('') | length) > 0
+             else local_log_root + '/raw/' + hostvars['localhost']['selected_raw_id'] }}
+      delegate_to: localhost
+      delegate_facts: true
+
+    - name: 保存先を表示する
+      ansible.builtin.debug:
+        msg: "Fetching detailed logs into {{ hostvars['localhost']['local_raw_root'] }}"
+      delegate_to: localhost
+
+- name: 各ホストから詳細ログを回収する
+  hosts: all
+  gather_facts: false
+  become: true
+  vars:
+    local_raw_root: "{{ hostvars['localhost']['local_raw_root'] }}"
+    local_host_raw_dir: "{{ local_raw_root }}/{{ inventory_hostname }}"
+    remote_app_log: "/tmp/isucon-app-{{ inventory_hostname }}.log"
+    nginx_error_log: /var/log/nginx/error.log
+  tasks:
+    - name: 手元にホスト別ディレクトリを作る
+      ansible.builtin.file:
+        path: "{{ local_host_raw_dir }}"
+        state: directory
+        mode: "0755"
+      delegate_to: localhost
+      become: false
+
+    - name: Nginxのaccess logを手元へ取得する
+      ansible.builtin.fetch:
+        src: "{{ access_log }}"
+        dest: "{{ local_host_raw_dir }}/access.log"
+        flat: true
+      failed_when: false
+      when: inventory_hostname in groups.get('nginx', [])
+
+    - name: Nginxのerror logを手元へ取得する
+      ansible.builtin.fetch:
+        src: "{{ nginx_error_log }}"
+        dest: "{{ local_host_raw_dir }}/error.log"
+        flat: true
+      failed_when: false
+      when: inventory_hostname in groups.get('nginx', [])
+
+    - name: MariaDBのスロークエリログを手元へ取得する
+      ansible.builtin.fetch:
+        src: "{{ slow_log }}"
+        dest: "{{ local_host_raw_dir }}/mysql-slow.log"
+        flat: true
+      failed_when: false
+      when: inventory_hostname in groups.get('db', [])
+
+    - name: アプリのjournalをファイルへ書き出す
+      ansible.builtin.shell: |
+        set -euo pipefail
+        journalctl -u "{{ app_service }}" -n 20000 --no-pager > "{{ remote_app_log }}"
+        chown "{{ ansible_user }}:{{ ansible_user }}" "{{ remote_app_log }}"
+      args:
+        executable: /bin/bash
+      changed_when: true
+      failed_when: false
+      when: inventory_hostname in groups.get('app', [])
+
+    - name: アプリのjournalを手元へ取得する
+      ansible.builtin.fetch:
+        src: "{{ remote_app_log }}"
+        dest: "{{ local_host_raw_dir }}/app.log"
+        flat: true
+      failed_when: false
+      when: inventory_hostname in groups.get('app', [])
+
+    - name: 一時journalファイルを削除する
+      ansible.builtin.file:
+        path: "{{ remote_app_log }}"
+        state: absent
+      failed_when: false
+      when: inventory_hostname in groups.get('app', [])
+
+    - name: 回収先を表示する
+      ansible.builtin.debug:
+        msg: "Saved detailed logs into {{ local_raw_root }}/"
+      run_once: true
+      delegate_to: localhost
+      become: false

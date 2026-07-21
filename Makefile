@@ -11,7 +11,7 @@ BENCH_SESSION ?= $(shell date +%Y%m%d-%H%M%S)
 
 .PHONY: help bootstrap server-sync pull deploy restart \
 	mysql-tune collect collect-backups pprof-view netdata-view \
-	fleet-enable fleet-disable finish publish bench
+	fleet-enable fleet-disable finish publish bench get-log-detail
 
 help: ## Makeターゲットと用途を表示する
 	@awk 'BEGIN { FS = ":.*## "; printf "Usage: make <target> [OPTION=value]\n\n" } /^[a-zA-Z0-9_-]+:.*## / { printf "  %-18s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -69,6 +69,9 @@ bench: ## 計測・解析・回収。Issue投稿: make bench PUBLISH=true
 
 collect: ## ベンチ結果だけ再取得。例: make collect SESSION=...
 	@$(PLAYBOOK) $(if $(SESSION),--extra-vars "requested_session=$(SESSION)") $(ANSIBLE_DIR)/collect.yml
+
+get-log-detail: ## 詳細ログを手元へ。次のbench前に。例: make get-log-detail / SESSION=20260719-123000
+	@$(PLAYBOOK) --extra-vars "requested_session=$(SESSION) raw_log_id=$(or $(SESSION),$(shell date +%Y%m%d-%H%M%S))" $(ANSIBLE_DIR)/fetch-logs.yml
 
 publish: ## 取得済み結果からGitHub Issueを作る。例: make publish DIR=...
 	@$(PUBLISH_SCRIPT) "$(DIR)"

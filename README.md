@@ -62,6 +62,7 @@ make pull            # 最新ベンチ結果 + 設定バックアップを手元
 make bench           # 計測・解析・回収
 make bench PUBLISH=true
 make finish          # 本気計測前に計測負荷を外す
+make get-log-detail  # 詳細ログを手元へ（次の bench 前に）
 make collect SESSION=20260719-123000
 ```
 
@@ -85,6 +86,7 @@ make collect SESSION=20260719-123000
 | `finish` | `fleet-disable` と同じ |
 | `mysql-tune` | MariaDB 性能 cnf 反映 |
 | `collect-backups` | 設定バックアップだけ回収 |
+| `get-log-detail` | nginx/DB/Go の詳細ログを手元へ（次の bench 前に） |
 | `pprof-view` / `netdata-view` | 手元でプロファイル / Netdata を見る |
 | `restart` | 全ホスト OS 再起動（追試用） |
 
