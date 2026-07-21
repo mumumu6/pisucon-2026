@@ -65,7 +65,7 @@
     - monitor_state | bool
     - observe_alloy_config is changed
 
-- name: Prometheus / Grafana を切り替える（見る用。ベンチ中も起動）
+- name: Prometheus / Grafana を切り替える（ベンチ中も起動。CPU/RPS をリアルタイム表示）
   ansible.builtin.command:
     argv: >-
       {{ ['docker', 'compose', 'start', 'prometheus', 'grafana']

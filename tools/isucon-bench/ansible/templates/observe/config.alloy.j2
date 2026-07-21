@@ -1,6 +1,6 @@
 // Alloy:
-// - access.log → RPS メトリクスのみ（Loki には送らない）
-// - journal / error → Loki（observe_alloy_send_logs のときだけ）
+// - access.log → RPS メトリクスのみ（ベンチ中リアルタイム。Loki には送らない）
+// - journal / error → Loki（observe_alloy_send_logs=true の full 時だけ）
 logging {
   level  = "warn"
   format = "logfmt"
@@ -83,7 +83,7 @@ loki.source.file "mysql_error" {
 {% endif %}
 
 {% if inventory_hostname in groups.get('nginx', []) %}
-// access.log → カウンタのみ（ベンチ中も Prometheus が scrape して RPS グラフ用に貯める）
+// access.log → カウンタのみ（ベンチ中リアルタイムで Prometheus が scrape → Grafana の RPS）
 local.file_match "nginx_access" {
   path_targets = [
     {

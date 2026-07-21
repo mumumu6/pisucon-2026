@@ -34,7 +34,7 @@
   ansible.builtin.include_tasks: tasks/nginx/restart.yml
   when: inventory_hostname in groups['nginx']
 
-- name: ベンチ中はメトリクスのみ起動する（Prometheus + exporters）
+- name: ベンチ中は metrics プロファイル（CPU/RPS は Grafana でリアルタイム。Loki のみ停止）
   ansible.builtin.include_tasks: tasks/observe/toggle.yml
   vars:
     monitor_state: "on"
