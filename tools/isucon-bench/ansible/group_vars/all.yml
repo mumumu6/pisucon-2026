@@ -68,15 +68,7 @@ alp_version: "1.0.21"
 access_log: /var/log/nginx/access.log
 access_log_format: ltsv
 
-# --- URI 正規化（回・問題ごとに変える。tools 本体は触らない）---
-# Alloy RPS 用: stage.replace（expression はキャプチャ1つ必須 / RE2）
-access_log_uri_normalizations:
-  - expression: '(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})'
-    replace: '/:uuid'
-# access.log メトリクス集計前に落とす行
-access_log_drop_patterns:
-  - expression: 'uri:/assets/'
-    reason: static-assets
+# --- URI 正規化（回・問題ごとに変える）---
 # alp -m 用マッチンググループ（長いパスを先に）
 alp_matching_groups:
   - /api/isu/[0-9a-f-]+/icon
@@ -103,29 +95,12 @@ mysql_password: isucon
 pt_query_digest_timeout_seconds: 180
 pt_query_digest_options: []
 
-# --- 観測スタック（reporter に Grafana+Prometheus+Loki、各ホストに exporter/Alloy）---
-observe_enabled: true
-observe_root: /opt/isucon-obs
-observe_compose_dir: "{{ observe_root }}/compose"
-observe_grafana_port: 3000
-observe_prometheus_port: 9090
-observe_loki_port: 3100
-observe_node_exporter_port: 9100
-observe_mysqld_exporter_port: 9104
-observe_grafana_view_port: 3000
-# メトリクス取得間隔（1s は重い。10s なら RPS/CPU の形もだいたい分かる）
-observe_scrape_interval: 10s
-observe_alloy_metrics_port: 12345
-# fleet-enable 時の既定: full（ログも見られる）
-# ベンチ prepare は metrics（Grafana で CPU/RPS を見つつ Loki だけ止める）
-# analyze 後は full（error/journal も見られる）
-observe_profile: full
-# install 時の Alloy 初期値（toggle が上書き）
-observe_alloy_send_logs: true
-# ピン留めバージョン（更新時はここだけ変える）
-prometheus_image: "prom/prometheus:v2.55.1"
-loki_image: "grafana/loki:3.3.2"
-grafana_image: "grafana/grafana:11.4.0"
-node_exporter_version: "1.8.2"
-alloy_version: "1.5.1"
-mysqld_exporter_version: "0.15.1"
+# --- netdata ---
+netdata_enabled: true
+netdata_service: netdata
+netdata_url: http://127.0.0.1:19999
+netdata_charts:
+  - system.cpu
+  - system.ram
+  - system.load
+  - system.io

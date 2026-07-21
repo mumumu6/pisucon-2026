@@ -26,6 +26,10 @@
   ansible.builtin.include_tasks: tasks/bench/analyze-app.yml
   when: inventory_hostname in groups['app']
 
+- name: Netdata結果を解析する
+  ansible.builtin.include_tasks: tasks/bench/analyze-netdata.yml
+  when: netdata_enabled | bool
+
 - name: 解析後に生ログを削除する
   ansible.builtin.file:
     path: "{{ item }}"
@@ -34,9 +38,8 @@
     - "{{ session_dir }}/access.log"
     - "{{ session_dir }}/mysql-slow.log"
 
-- name: ベンチ後は full プロファイル（Loki を起動して journal/error も見られるようにする）
-  ansible.builtin.include_tasks: tasks/observe/toggle.yml
-  vars:
-    monitor_state: "on"
-    observe_profile: full
-  when: observe_enabled | bool
+- name: 集計後にnetdataの生レスポンスを削除する
+  ansible.builtin.file:
+    path: "{{ session_dir }}/netdata"
+    state: absent
+  when: netdata_enabled | bool

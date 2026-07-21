@@ -1,8 +1,13 @@
 ---
 # monitor_state: on | off
-# observe / slow query / pprof をまとめて切り替える（個別には切らない前提）
-- name: 観測スタックを制御する
-  ansible.builtin.include_tasks: tasks/observe/toggle.yml
+# netdata / slow query / pprof をまとめて切り替える（個別には切らない前提）
+- name: Netdataを制御する
+  ansible.builtin.systemd:
+    name: "{{ netdata_service }}"
+    state: "{{ 'started' if monitor_state | bool else 'stopped' }}"
+    enabled: "{{ monitor_state | bool }}"
+  become: true
+  when: netdata_enabled | bool
 
 - name: スロークエリログを制御する
   ansible.builtin.include_tasks: tasks/db/slow-query.yml
