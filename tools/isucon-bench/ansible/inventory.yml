@@ -4,7 +4,8 @@ all:
     # 1台構成: 全グループに同じホスト / 3台構成: 役割ごとに分ける
     #
     # private_ip はサーバ間通信用（nginx→app、app→db）。
-    # ansible が自動参照する（手で nginx conf / env.sh に書かなくてよい）。
+    # Ansible が自動参照する（手で nginx conf / env.sh / MariaDB bind・GRANT に書かなくてよい）。
+    # 参照箇所: nginx upstream / app listen / MYSQL_HOST / MariaDB bind・GRANT / /etc/hosts
     app:
       hosts:
         isucon-1:

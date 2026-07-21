@@ -15,6 +15,10 @@
       tags: [common, packages]
       ansible.builtin.include_tasks: tasks/common/packages.yml
 
+    - name: inventory の private_ip を /etc/hosts に反映する
+      tags: [common, hosts]
+      ansible.builtin.include_tasks: tasks/common/hosts.yml
+
     - name: GitHub用SSH鍵を配置する
       tags: [common, github]
       ansible.builtin.include_tasks: tasks/common/github-ssh.yml

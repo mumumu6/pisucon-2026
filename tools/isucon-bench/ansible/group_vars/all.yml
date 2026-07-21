@@ -82,10 +82,7 @@ mysql_password: isucon
 # env.sh 末尾に足す大会固有の行（任意）
 app_env_extra: |
   POST_ISUCONDITION_TARGET_BASE_URL="http://isucondition-1.t.isucon.dev"
-mysql_remote_grant_sql: >-
-  CREATE USER IF NOT EXISTS 'isucon'@'%' IDENTIFIED BY 'isucon';
-  GRANT ALL PRIVILEGES ON *.* TO 'isucon'@'%' WITH GRANT OPTION;
-  FLUSH PRIVILEGES;
+# リモート GRANT は tasks/db/performance.yml が mysql_user / mysql_password から自動生成
 pt_query_digest_timeout_seconds: 180
 pt_query_digest_options: []
 

@@ -6,7 +6,7 @@
     access_log            … access log パス
     frontend_public_dir   … 静的ファイル root
     nginx_app_colocated   … この nginx ホストが app も持つか
-    app_backend_ip        … 分離時に使う app の private_ip（inventory）
+    groups['app']         … 分離時は各ホストの private_ip を upstream に列挙
     app_listen_port       … 分離時の TCP ポート（group_vars、既定 3000）
 
   location / gzip は大会に合わせてこのファイルを直接編集する。
@@ -27,13 +27,16 @@ log_format ltsv "time:$time_local"
                 "\tvhost:$host";
 
 # proxy_pass http://app; から参照。同居なら unix、分離なら inventory の private_ip。
+# app が複数ホストなら、分離時は groups['app'] 全部を upstream に並べる。
 upstream app {
 {% if nginx_app_colocated | bool %}
     # nginx と app が同一ホスト → unix socket
     server unix:{{ app_unix_socket }};
 {% else %}
-    # 分離構成 → app ホストの private_ip:port（inventory.yml）
-    server {{ app_backend_ip }}:{{ app_listen_port | default(3000) }};
+{% for host in groups['app'] %}
+    # {{ host }} ← inventory.yml の private_ip（無ければ ansible_host）
+    server {{ hostvars[host].private_ip | default(hostvars[host].ansible_host) }}:{{ app_listen_port | default(3000) }};
+{% endfor %}
 {% endif %}
     keepalive 256;
 }

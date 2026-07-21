@@ -1,5 +1,9 @@
 ---
 # MariaDB の設定をまとめて反映する（slow log 置き場 / 性能 cnf / リモート権限）
+# bind-address / GRANT は inventory の app↔db 分離有無から自動。
+- name: トポロジを解決する
+  ansible.builtin.include_tasks: tasks/common/topology-facts.yml
+
 - name: MariaDBの設定を反映する
   block:
     - name: スローログ用の置き場を用意する
@@ -31,9 +35,12 @@
       notify: MariaDBを再起動する
 
     # cnf ではユーザー権限は書けない。初期は localhost だけなのでリモート用を作る。
+    # ユーザー/パスは group_vars の mysql_user / mysql_password を使う。
     - name: リモート接続用ユーザーを許可する
-      ansible.builtin.command:
-        argv:
-          - "{{ mysql_admin_command }}"
-          - --execute={{ mysql_remote_grant_sql }}
+      ansible.builtin.shell: |
+        set -euo pipefail
+        {{ mysql_admin_command }} --execute="CREATE USER IF NOT EXISTS '{{ mysql_user }}'@'%' IDENTIFIED BY '{{ mysql_password }}'; GRANT ALL PRIVILEGES ON *.* TO '{{ mysql_user }}'@'%' WITH GRANT OPTION; FLUSH PRIVILEGES;"
+      args:
+        executable: /bin/bash
       changed_when: true
+      when: db_has_remote_clients | bool

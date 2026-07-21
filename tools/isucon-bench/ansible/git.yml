@@ -24,3 +24,8 @@
   tasks:
     - name: リポジトリを同期する
       ansible.builtin.include_tasks: tasks/common/git-sync.yml
+
+    # git 管理の env.sh（1台用の 127.0.0.1）を、inventory 由来の値で上書きする
+    - name: env.sh を inventory から再配置する
+      ansible.builtin.include_tasks: tasks/app/env.yml
+      when: inventory_hostname in groups.get('app', [])
