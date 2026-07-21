@@ -1,13 +1,23 @@
 ---
-# monitor_state: "on" | "off"（YAML の素の on は boolean。比較は | bool を使う）
-- name: 観測エージェントを切り替える
+# monitor_state: "on" | "off"
+# observe_profile: metrics | full
+#   metrics … Prometheus + Grafana + exporters + Alloy(RPS)。Loki だけ止める
+#   full    … + Loki + Alloy(journal/error も送信)
+- name: 観測プロファイルを正規化する
+  ansible.builtin.set_fact:
+    observe_profile_norm: "{{ (observe_profile | default('full') | string | lower) }}"
+    observe_alloy_send_logs: "{{ (observe_profile | default('full') | string | lower) == 'full' }}"
+    observe_loki_push_host: >-
+      {{ hostvars[groups['reporter'][0]].private_ip
+         | default(hostvars[groups['reporter'][0]].ansible_host)
+         | default('127.0.0.1') }}
+  when: observe_enabled | bool
+
+- name: メトリクス exporter を切り替える
   ansible.builtin.systemd:
-    name: "{{ item }}"
+    name: node_exporter
     state: "{{ 'started' if monitor_state | bool else 'stopped' }}"
     enabled: "{{ monitor_state | bool }}"
-  loop:
-    - node_exporter
-    - alloy
   become: true
   failed_when: false
   when: observe_enabled | bool
@@ -23,15 +33,63 @@
     - observe_enabled | bool
     - inventory_hostname in groups.get('db', [])
 
-- name: 中央スタックを切り替える
+- name: Alloy 設定をプロファイルに合わせて書き直す
+  ansible.builtin.template:
+    src: templates/observe/config.alloy.j2
+    dest: "{{ observe_root }}/alloy/config.alloy"
+    mode: "0644"
+  become: true
+  register: observe_alloy_config
+  when:
+    - observe_enabled | bool
+    - monitor_state | bool
+
+- name: Alloy を切り替える（RPS 用。metrics / full とも起動）
+  ansible.builtin.systemd:
+    name: alloy
+    state: "{{ 'started' if monitor_state | bool else 'stopped' }}"
+    enabled: "{{ monitor_state | bool }}"
+    daemon_reload: "{{ observe_alloy_config is changed }}"
+  become: true
+  failed_when: false
+  when: observe_enabled | bool
+
+- name: Alloy 設定変更を反映する
+  ansible.builtin.systemd:
+    name: alloy
+    state: restarted
+  become: true
+  failed_when: false
+  when:
+    - observe_enabled | bool
+    - monitor_state | bool
+    - observe_alloy_config is changed
+
+- name: Prometheus / Grafana を切り替える（見る用。ベンチ中も起動）
   ansible.builtin.command:
     argv: >-
-      {{ ['docker', 'compose', 'start'] if (monitor_state | bool)
-         else ['docker', 'compose', 'stop'] }}
+      {{ ['docker', 'compose', 'start', 'prometheus', 'grafana']
+         if (monitor_state | bool)
+         else ['docker', 'compose', 'stop', 'prometheus', 'grafana'] }}
     chdir: "{{ observe_compose_dir }}"
   become: true
-  register: observe_compose_toggle
-  changed_when: observe_compose_toggle.rc == 0
+  register: observe_core_toggle
+  changed_when: observe_core_toggle.rc == 0
+  failed_when: false
+  when:
+    - observe_enabled | bool
+    - inventory_hostname in groups.get('reporter', [])
+
+- name: Loki を切り替える（journal/error を見る full のときだけ）
+  ansible.builtin.command:
+    argv: >-
+      {{ ['docker', 'compose', 'start', 'loki']
+         if (monitor_state | bool) and (observe_profile_norm == 'full')
+         else ['docker', 'compose', 'stop', 'loki'] }}
+    chdir: "{{ observe_compose_dir }}"
+  become: true
+  register: observe_loki_toggle
+  changed_when: observe_loki_toggle.rc == 0
   failed_when: false
   when:
     - observe_enabled | bool

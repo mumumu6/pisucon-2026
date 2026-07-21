@@ -19,7 +19,7 @@
       },
       "id": 100,
       "panels": [],
-      "title": "RPS / Latency (all nginx)",
+      "title": "RPS / Latency（ベンチ中は Alloy→Prometheus に蓄積。Grafana は後から見る）",
       "type": "row"
     },
     {
@@ -44,10 +44,10 @@
         "y": 1
       },
       "id": 20,
-      "interval": "1s",
+      "interval": "10s",
       "targets": [
         {
-          "expr": "sum by (method, uri) (rate(isucon_nginx_http_requests_total[2s]))",
+          "expr": "sum by (method, uri) (rate(isucon_nginx_http_requests_total[30s]))",
           "legendFormat": "{{method}} {{uri}}",
           "refId": "A"
         }
@@ -77,15 +77,15 @@
         "y": 1
       },
       "id": 21,
-      "interval": "1s",
+      "interval": "10s",
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le, method, uri) (rate(isucon_nginx_http_request_duration_seconds_bucket[2s])))",
+          "expr": "histogram_quantile(0.95, sum by (le, method, uri) (rate(isucon_nginx_http_request_duration_seconds_bucket[30s])))",
           "legendFormat": "p95 {{method}} {{uri}}",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.99, sum by (le, method, uri) (rate(isucon_nginx_http_request_duration_seconds_bucket[2s])))",
+          "expr": "histogram_quantile(0.99, sum by (le, method, uri) (rate(isucon_nginx_http_request_duration_seconds_bucket[30s])))",
           "legendFormat": "p99 {{method}} {{uri}}",
           "refId": "B"
         }
@@ -115,10 +115,10 @@
         "y": 9
       },
       "id": 22,
-      "interval": "1s",
+      "interval": "10s",
       "targets": [
         {
-          "expr": "sum by (status) (rate(isucon_nginx_http_requests_total[2s]))",
+          "expr": "sum by (status) (rate(isucon_nginx_http_requests_total[30s]))",
           "legendFormat": "{{status}}",
           "refId": "A"
         }
@@ -148,10 +148,10 @@
         "y": 9
       },
       "id": 23,
-      "interval": "1s",
+      "interval": "10s",
       "targets": [
         {
-          "expr": "sum by (instance) (rate(isucon_nginx_http_requests_total[2s]))",
+          "expr": "sum by (instance) (rate(isucon_nginx_http_requests_total[30s]))",
           "legendFormat": "{{instance}}",
           "refId": "A"
         }
@@ -205,14 +205,14 @@
       "maxPerRow": 2,
       "targets": [
         {
-          "expr": "avg by (mode) (rate(node_cpu_seconds_total{instance=\"$instance\", mode=~\"user|system|nice|iowait|irq|softirq|steal\"}[2s])) * 100",
+          "expr": "avg by (mode) (rate(node_cpu_seconds_total{instance=\"$instance\", mode=~\"user|system|nice|iowait|irq|softirq|steal\"}[30s])) * 100",
           "legendFormat": "{{mode}}",
           "refId": "A"
         }
       ],
       "title": "CPU % — $instance",
       "type": "timeseries",
-      "interval": "1s"
+      "interval": "10s"
     },
     {
       "datasource": {
@@ -256,7 +256,7 @@
       ],
       "title": "Memory — $instance",
       "type": "timeseries",
-      "interval": "1s"
+      "interval": "10s"
     },
     {
       "datasource": {
@@ -302,7 +302,7 @@
       ],
       "title": "Load — $instance",
       "type": "timeseries",
-      "interval": "1s"
+      "interval": "10s"
     },
     {
       "datasource": {
@@ -331,19 +331,19 @@
       "maxPerRow": 2,
       "targets": [
         {
-          "expr": "rate(node_network_receive_bytes_total{instance=\"$instance\", device!~\"lo|veth.*|docker.*|br.*\"}[2s])",
+          "expr": "rate(node_network_receive_bytes_total{instance=\"$instance\", device!~\"lo|veth.*|docker.*|br.*\"}[30s])",
           "legendFormat": "{{device}} rx",
           "refId": "A"
         },
         {
-          "expr": "rate(node_network_transmit_bytes_total{instance=\"$instance\", device!~\"lo|veth.*|docker.*|br.*\"}[2s])",
+          "expr": "rate(node_network_transmit_bytes_total{instance=\"$instance\", device!~\"lo|veth.*|docker.*|br.*\"}[30s])",
           "legendFormat": "{{device}} tx",
           "refId": "B"
         }
       ],
       "title": "Network — $instance",
       "type": "timeseries",
-      "interval": "1s"
+      "interval": "10s"
     },
     {
       "datasource": {
@@ -371,29 +371,29 @@
       "maxPerRow": 2,
       "targets": [
         {
-          "expr": "rate(node_disk_reads_completed_total{instance=\"$instance\", device!~\"loop.*|ram.*\"}[2s])",
+          "expr": "rate(node_disk_reads_completed_total{instance=\"$instance\", device!~\"loop.*|ram.*\"}[30s])",
           "legendFormat": "{{device}} read iops",
           "refId": "A"
         },
         {
-          "expr": "rate(node_disk_writes_completed_total{instance=\"$instance\", device!~\"loop.*|ram.*\"}[2s])",
+          "expr": "rate(node_disk_writes_completed_total{instance=\"$instance\", device!~\"loop.*|ram.*\"}[30s])",
           "legendFormat": "{{device}} write iops",
           "refId": "B"
         },
         {
-          "expr": "rate(node_disk_read_bytes_total{instance=\"$instance\", device!~\"loop.*|ram.*\"}[2s])",
+          "expr": "rate(node_disk_read_bytes_total{instance=\"$instance\", device!~\"loop.*|ram.*\"}[30s])",
           "legendFormat": "{{device}} read B/s",
           "refId": "C"
         },
         {
-          "expr": "rate(node_disk_written_bytes_total{instance=\"$instance\", device!~\"loop.*|ram.*\"}[2s])",
+          "expr": "rate(node_disk_written_bytes_total{instance=\"$instance\", device!~\"loop.*|ram.*\"}[30s])",
           "legendFormat": "{{device}} write B/s",
           "refId": "D"
         }
       ],
       "title": "Disk — $instance",
       "type": "timeseries",
-      "interval": "1s"
+      "interval": "10s"
     },
     {
       "collapsed": false,
@@ -433,19 +433,19 @@
       "id": 4,
       "targets": [
         {
-          "expr": "rate(mysql_global_status_questions{instance=~\"$instance\"}[2s])",
+          "expr": "rate(mysql_global_status_questions{instance=~\"$instance\"}[30s])",
           "legendFormat": "QPS {{instance}}",
           "refId": "A"
         },
         {
-          "expr": "rate(mysql_global_status_slow_queries{instance=~\"$instance\"}[2s])",
+          "expr": "rate(mysql_global_status_slow_queries{instance=~\"$instance\"}[30s])",
           "legendFormat": "slow QPS {{instance}}",
           "refId": "B"
         }
       ],
       "title": "MariaDB QPS",
       "type": "timeseries",
-      "interval": "1s"
+      "interval": "10s"
     },
     {
       "datasource": {
@@ -489,7 +489,7 @@
       ],
       "title": "MariaDB Connections",
       "type": "timeseries",
-      "interval": "1s"
+      "interval": "10s"
     },
     {
       "datasource": {
@@ -518,14 +518,14 @@
       "id": 26,
       "targets": [
         {
-          "expr": "1 - (rate(mysql_global_status_innodb_buffer_pool_reads{instance=~\"$instance\"}[2s]) / clamp_min(rate(mysql_global_status_innodb_buffer_pool_read_requests{instance=~\"$instance\"}[2s]), 1))",
+          "expr": "1 - (rate(mysql_global_status_innodb_buffer_pool_reads{instance=~\"$instance\"}[30s]) / clamp_min(rate(mysql_global_status_innodb_buffer_pool_read_requests{instance=~\"$instance\"}[30s]), 1))",
           "legendFormat": "buffer hit {{instance}}",
           "refId": "A"
         }
       ],
       "title": "MariaDB Buffer pool hit",
       "type": "timeseries",
-      "interval": "1s"
+      "interval": "10s"
     },
     {
       "collapsed": false,
@@ -537,35 +537,8 @@
       },
       "id": 103,
       "panels": [],
-      "title": "Logs (by role)",
+      "title": "Logs (by role) — error / journal only",
       "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "loki",
-        "uid": "loki"
-      },
-      "description": "nginx access.log（RPS 用メトリクス抽出後の本文）。job=nginx-access",
-      "gridPos": {
-        "h": 9,
-        "w": 24,
-        "x": 0,
-        "y": 59
-      },
-      "id": 5,
-      "options": {
-        "showTime": true,
-        "sortOrder": "Descending",
-        "wrapLogMessage": true
-      },
-      "targets": [
-        {
-          "expr": "{job=\"nginx-access\", host=~\"$instance\"}",
-          "refId": "A"
-        }
-      ],
-      "title": "access.log",
-      "type": "logs"
     },
     {
       "datasource": {
@@ -577,7 +550,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 68
+        "y": 59
       },
       "id": 50,
       "options": {
@@ -604,7 +577,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 68
+        "y": 59
       },
       "id": 51,
       "options": {
@@ -631,7 +604,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 76
+        "y": 67
       },
       "id": 52,
       "options": {
@@ -649,7 +622,7 @@
       "type": "logs"
     }
   ],
-  "refresh": "1s",
+  "refresh": "10s",
   "schemaVersion": 39,
   "tags": [
     "isucon"

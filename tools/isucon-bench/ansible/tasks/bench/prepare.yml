@@ -34,10 +34,11 @@
   ansible.builtin.include_tasks: tasks/nginx/restart.yml
   when: inventory_hostname in groups['nginx']
 
-- name: 計測中の観測スタックを起動する
+- name: ベンチ中はメトリクスのみ起動する（Prometheus + exporters）
   ansible.builtin.include_tasks: tasks/observe/toggle.yml
   vars:
     monitor_state: "on"
+    observe_profile: metrics
   when: observe_enabled | bool
 
 - name: Nginxのaccess logを確認する

@@ -1,10 +1,12 @@
-// Alloy: journal + error log (+ 任意で access.log) → Loki
-// access.log からは API 別 RPS 用メトリクスも出す
+// Alloy:
+// - access.log → RPS メトリクスのみ（Loki には送らない）
+// - journal / error → Loki（observe_alloy_send_logs のときだけ）
 logging {
   level  = "warn"
   format = "logfmt"
 }
 
+{% if observe_alloy_send_logs | default(false) | bool %}
 loki.write "default" {
   endpoint {
     url        = "http://{{ observe_loki_push_host }}:{{ observe_loki_port }}/loki/api/v1/push"
@@ -50,8 +52,38 @@ loki.source.file "nginx_error" {
   targets    = local.file_match.nginx_error.targets
   forward_to = [loki.write.default.receiver]
 }
+{% endif %}
 
-{% if observe_ship_access_log | default(true) | bool %}
+{% if inventory_hostname in groups.get('db', []) %}
+loki.source.journal "mariadb" {
+  matches     = "_SYSTEMD_UNIT={{ mysql_service }}.service"
+  forward_to  = [loki.write.default.receiver]
+  labels = {
+    host = "{{ inventory_hostname }}",
+    job  = "mariadb",
+    unit = "{{ mysql_service }}.service",
+  }
+}
+
+local.file_match "mysql_error" {
+  path_targets = [
+    {
+      "__path__" = "/var/log/mysql/error.log",
+      "job"      = "mysql-error",
+      "host"     = "{{ inventory_hostname }}",
+    },
+  ]
+}
+
+loki.source.file "mysql_error" {
+  targets    = local.file_match.mysql_error.targets
+  forward_to = [loki.write.default.receiver]
+}
+{% endif %}
+{% endif %}
+
+{% if inventory_hostname in groups.get('nginx', []) %}
+// access.log → カウンタのみ（ベンチ中も Prometheus が scrape して RPS グラフ用に貯める）
 local.file_match "nginx_access" {
   path_targets = [
     {
@@ -69,7 +101,7 @@ loki.source.file "nginx_access" {
 }
 
 loki.process "nginx_access" {
-  forward_to = [loki.write.default.receiver]
+  forward_to = []
 
 {% for drop in access_log_drop_patterns | default([]) %}
   stage.drop {
@@ -78,7 +110,6 @@ loki.process "nginx_access" {
   }
 {% endfor %}
 
-  // LTSV: クエリを除いた path だけ uri に入れる
   stage.regex {
     expression = "status:(?P<status>[^\\t]+).*method:(?P<method>[^\\t]+).*uri:(?P<uri>[^\\t?]+)(?:\\?[^\\t]*)?.*reqtime:(?P<reqtime>[^\\t]+)"
   }
@@ -91,7 +122,6 @@ loki.process "nginx_access" {
   }
 {% endfor %}
 
-  // メトリクス用ラベル（このあと Loki 向けには落とす）
   stage.labels {
     values = {
       method = "",
@@ -120,37 +150,8 @@ loki.process "nginx_access" {
     }
   }
 
-  // Loki ストリーム爆発防止（method/uri/status はメトリクス専用）
   stage.label_drop {
     values = ["method", "uri", "status"]
   }
-}
-{% endif %}
-{% endif %}
-
-{% if inventory_hostname in groups.get('db', []) %}
-loki.source.journal "mariadb" {
-  matches     = "_SYSTEMD_UNIT={{ mysql_service }}.service"
-  forward_to  = [loki.write.default.receiver]
-  labels = {
-    host = "{{ inventory_hostname }}",
-    job  = "mariadb",
-    unit = "{{ mysql_service }}.service",
-  }
-}
-
-local.file_match "mysql_error" {
-  path_targets = [
-    {
-      "__path__" = "/var/log/mysql/error.log",
-      "job"      = "mysql-error",
-      "host"     = "{{ inventory_hostname }}",
-    },
-  ]
-}
-
-loki.source.file "mysql_error" {
-  targets    = local.file_match.mysql_error.targets
-  forward_to = [loki.write.default.receiver]
 }
 {% endif %}

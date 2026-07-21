@@ -33,3 +33,10 @@
   loop:
     - "{{ session_dir }}/access.log"
     - "{{ session_dir }}/mysql-slow.log"
+
+- name: ベンチ後に Grafana / Loki / Alloy を起動する（見る用）
+  ansible.builtin.include_tasks: tasks/observe/toggle.yml
+  vars:
+    monitor_state: "on"
+    observe_profile: full
+  when: observe_enabled | bool
