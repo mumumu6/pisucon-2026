@@ -29,19 +29,19 @@
         state: absent
       notify: Nginxを再起動する
 
-    - name: nginx.conf を反映する
+    - name: nginx.conf の worker_connections を上げる
       ansible.builtin.replace:
         path: /etc/nginx/nginx.conf
         regexp: 'worker_connections\s+\d+;'
-        replace: 'worker_connections {{ nginx_worker_connections }};'
+        replace: 'worker_connections 65535;'
         backup: true
       notify: Nginxを再起動する
 
-    - name: nginx.conf に worker_rlimit_nofile を反映する
+    - name: nginx.conf に worker_rlimit_nofile を書く
       ansible.builtin.lineinfile:
         path: /etc/nginx/nginx.conf
         regexp: '^\s*worker_rlimit_nofile\s+'
-        line: "worker_rlimit_nofile {{ nginx_limit_nofile }};"
+        line: "worker_rlimit_nofile 65535;"
         insertafter: '^worker_processes'
         backup: true
       notify: Nginxを再起動する

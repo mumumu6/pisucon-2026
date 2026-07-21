@@ -1,29 +1,24 @@
-# Ansibleで管理: tools/isucon-bench/ansible/group_vars/all.yml
-# OSまたは電源の異常終了時、直近およそ1秒分の書き込みが失われる可能性があります。
+# MariaDB 性能設定。いじるときはこのファイルを直接直して make mysql-tune。
+# OS/電源断時、直近およそ1秒分の更新が失われる可能性がある（flush_log_at_trx_commit=2）。
 #
-# bind-address は 50-server.cnf の 127.0.0.1 を上書きする（ファイル名 99- で後勝ち）。
-# これがないと他ホストのアプリから 3306 に繋がらない。
+# bind-address は 50-server.cnf の 127.0.0.1 を上書きする（99- で後勝ち）。
+
 [mysqld]
-bind-address = {{ mysql_bind_address }}
-# 未設定だと datadir 直下に巨大なスローログが溜まり、pt-query-digest が終わらなくなる
+bind-address = 0.0.0.0
 slow_query_log = 1
 slow_query_log_file = {{ slow_log }}
-long_query_time = {{ mysql_slow_query_time }}
+long_query_time = 0
 log_output = FILE
 
 [mariadb]
-innodb_flush_log_at_trx_commit = {{ mysql_innodb_flush_log_at_trx_commit }}
-{% if mysql_skip_log_bin | default(false) %}
+innodb_flush_log_at_trx_commit = 2
 skip-log-bin
-{% else %}
-sync_binlog = {{ mysql_sync_binlog }}
-{% endif %}
 
-innodb_buffer_pool_size = {{ mysql_innodb_buffer_pool_size }}
-innodb_buffer_pool_instances = {{ mysql_innodb_buffer_pool_instances }}
-innodb_log_buffer_size = {{ mysql_innodb_log_buffer_size }}
-innodb_log_file_size = {{ mysql_innodb_log_file_size }}
-innodb_flush_method = {{ mysql_innodb_flush_method }}
-innodb_io_capacity = {{ mysql_innodb_io_capacity }}
-innodb_io_capacity_max = {{ mysql_innodb_io_capacity_max }}
-max_connections = {{ mysql_max_connections }}
+innodb_buffer_pool_size = 2G
+innodb_buffer_pool_instances = 2
+innodb_log_buffer_size = 64M
+innodb_log_file_size = 512M
+innodb_flush_method = O_DIRECT
+innodb_io_capacity = 2000
+innodb_io_capacity_max = 4000
+max_connections = 1000

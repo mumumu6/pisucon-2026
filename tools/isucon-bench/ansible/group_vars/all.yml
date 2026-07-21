@@ -1,112 +1,50 @@
 ---
 # =============================================================================
 # 大会ごとに書き換える設定（別回の ISUCON では主にここを変える）
+# nginx の location / gzip、MariaDB の数値などは templates/ を直接編集する
 # =============================================================================
 
-# アプリの識別名（例: isucondition / isuride / isupipe）。
-# systemd サービス名・socket・nginx conf 名などの「既定の組み立て元」になる。
+# アプリの識別名。サービス名・socket・nginx conf 名などの組み立て元。
 app_name: isucondition
 
-# SSH / ファイル所有者に使う OS ユーザー名（大会イメージはほぼ isucon）
 deploy_user: isucon
-# Ansible が SSH 接続するときのユーザー（通常は deploy_user と同じ）
 ansible_user: isucon
-# サーバー上で競技リポジトリを置くディレクトリ（ホーム直下が多い）
 remote_project_root: /home/{{ deploy_user }}
-# ベンチ結果（alp / pprof 等）をサーバー側に一時保存する場所
 remote_log_root: "{{ remote_project_root }}/log"
-# Go アプリのビルド作業ディレクトリ（chdir 先）
 app_working_dir: "{{ remote_project_root }}/webapp/go"
-# nginx が静的ファイルを配信する document root（フロントのビルド成果物）
 frontend_public_dir: "{{ remote_project_root }}/webapp/public"
 
-# --- Git 同期（make pull / bootstrap） ---
-# サーバーへ clone/fetch するリポジトリ（SSH URL 推奨）
+# --- Git / GitHub Issue ---
 git_repository: git@github.com:mumumu6/pisucon-2026.git
-# 追従するブランチまたはタグ
 git_version: main
-# サーバー上の git config user.name（commit が必要になったとき用）
 git_user_name: mumumu6
-# サーバー上の git config user.email
 git_user_email: takumu.sato@gmail.com
-# make publish / bench PUBLISH=true で Issue を作る先（owner/repo）
 github_repository: mumumu6/pisucon-2026
-# false にすると GitHub Issue 作成をスキップする
 create_github_issue: true
 
-# --- アプリのビルド / systemd ---
-# アプリバイナリを作るシェルコマンド（app_working_dir で実行）
+# --- アプリ ---
 build_command: "go build -o {{ app_name }} ."
-# アプリ再起動コマンド（bench / monitor から呼ぶ）
 restart_command: "sudo systemctl restart {{ app_service }}"
-# systemd ユニット名（例: isucondition.go.service）
 app_service: "{{ app_name }}.go.service"
-# systemd RuntimeDirectory= の値（/run/<この名前>/ が作られる）
 app_runtime_directory: "{{ app_name }}"
-# アプリが待ち受ける unix domain socket パス
 app_unix_socket: "/run/{{ app_name }}/{{ app_name }}.sock"
-# アプリの LimitNOFILE（同時接続が多いときの FD 上限）
-app_limit_nofile: 65535
-# Go の GOGC（大きいほど GC 頻度↓。メモリに余裕があるときテール改善用）
-app_gogc: 400
-# Go の GOMEMLIMIT（ソフトなヒープ上限。例: 2GiB）
-app_gomemlimit: 2GiB
 
-# --- Nginx ---
-# 配置先のサイト設定ファイルパス
+# --- Nginx（細かい中身は templates/nginx.site.conf.j2）---
 nginx_conf_dest: "/etc/nginx/conf.d/{{ app_name }}.conf"
-# upstream {} ブロック名（proxy_pass で参照）
-nginx_upstream_name: "{{ app_name }}_app"
-# 外部向け listen ポート（ベンチが叩く側）
-nginx_listen_port: 80
-# unix socket を使わないときのアプリ TCP ポート
-nginx_app_port: 3000
-# nginx.conf の worker_connections
-nginx_worker_connections: 65535
-# nginx.service の LimitNOFILE / worker_rlimit_nofile
-nginx_limit_nofile: 65535
-# リクエストボディ用バッファサイズ
-nginx_client_body_buffer_size: 256k
-# upstream の keepalive 接続数
-nginx_upstream_keepalive: 256
-# アプリへの TCP 接続先。同一ホストなら 127.0.0.1、分離なら app の private_ip
-nginx_app_backend_host: 127.0.0.1
-# アプリへの unix socket（空文字 "" にすると TCP=nginx_app_backend_host:port を使う）
-nginx_app_unix_socket: "{{ app_unix_socket }}"
-# true なら location / を SPA 向け try_files（index.html フォールバック）にする
-nginx_serve_spa: true
-# 長期キャッシュする静的アセットの prefix（空なら location 自体を出さない）
-nginx_assets_prefix: /assets/
-# 完全一致でアプリへプロキシするパス（location = ...）
-nginx_proxy_exact_locations:
-  - /initialize
-# プレフィックス一致でアプリへプロキシするパス（location ^~ ...）
-nginx_proxy_prefix_locations:
-  - /api/
 
 # --- pprof ---
-# サーバー上で app_working_dir 直下に置くファイル名
 pprof_filename: pprof.go
-# 手元リポジトリ内の同じファイルの相対パス（toggle-pprof が書き換える）
 local_pprof_relative: webapp/go/pprof.go
-# アプリ内 pprof HTTP の待受（localhost 限定推奨）
-pprof_listen: "127.0.0.1:6060"
-# go tool pprof が取りに行くプロファイル URL
-pprof_url: "http://{{ pprof_listen }}/debug/pprof/profile"
-# 1回のベンチで取る CPU プロファイル秒数（公式ベンチ長を覆う目安）
+pprof_url: http://127.0.0.1:6060/debug/pprof/profile
 pprof_seconds: 75
-# make pprof-view が手元で開くポート（http://localhost:<この値>）
 pprof_view_port: 6070
 
 # =============================================================================
-# 計測・DB・共通ツール（大会をまたいでもだいたい同じでよい）
+# 計測・DB・共通（パスやサービス名など。数値チューニングは templates/ 側）
 # =============================================================================
 
-# 手元PCへ回収したベンチ結果の保存先（リポジトリ直下の log/）
 local_log_root: "{{ playbook_dir }}/../../../log"
 
-# inventory のグループ所属で「そのホストで動かすサービス」を決める。
-# 1台構成: 全グループに同じホスト / 分割構成: 役割ごとのホストだけ起動し、余りは止める。
 fleet_services:
   - name: "{{ app_service }}"
     roles: [app]
@@ -115,85 +53,35 @@ fleet_services:
   - name: "{{ mysql_service }}"
     roles: [db]
 
-# --- GitHub 用 SSH 鍵（いわゆるデプロイ鍵）---
-# サーバーから private リポジトリへ git clone/fetch するための GitHub SSH 鍵。
-# チームで1組あればよい（メンバー各自の鍵は不要。誰か1人の鍵 or Deploy key を共有）。
-# 秘密鍵は Git 管理しない（files/ は .gitignore 済み）。bootstrap/setup が全ホストへ配る。
-# 手元（Ansible 実行マシン）にある秘密鍵のパス
+# GitHub 用 SSH 鍵（デプロイ鍵）。チームで1組あればよい。files/ は gitignore 済み。
 github_ssh_private_key_src: "{{ playbook_dir }}/files/github_id_ed25519"
-# 手元にある公開鍵のパス
 github_ssh_public_key_src: "{{ playbook_dir }}/files/github_id_ed25519.pub"
-# サーバー上に置く identity ファイルのパス（ssh config の IdentityFile）
 github_ssh_identity_file: "/home/{{ deploy_user }}/.ssh/id_ed25519"
-# github.com の host key（ssh-keyscan -t rsa,ecdsa,ed25519 github.com の結果）
 github_ssh_known_hosts: |
   github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
   github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
   github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
 
-# --- alp（nginx access log 解析）---
-# 導入する alp のバージョン
 alp_version: "1.0.21"
-# nginx access log のパス
 access_log: /var/log/nginx/access.log
-# alp に渡す形式名（ltsv / json など）。サイト設定の log_format 名と一致させる
 access_log_format: ltsv
-# alp への追加オプション（例: ["--matching", "/api/"]）
 alp_options: []
 
-# --- MariaDB / スロークエリ ---
-# mysql クライアントコマンド名
 mysql_admin_command: mysql
-# systemd 上の DB サービス名（mariadb or mysql）
 mysql_service: mariadb
-# long_query_time（0 ならほぼ全クエリを slow log へ）
 mysql_slow_query_time: 0
-# スロークエリログファイルのパス
 slow_log: /var/log/mysql/mariadb-slow.log
-# make mysql-tune / setup が置く性能設定ファイル
 mysql_performance_cnf: /etc/mysql/mariadb.conf.d/99-isucon-performance.cnf
-# COMMIT 時の redo fsync 頻度（2=約1秒ごと。速いが電源断で直近が失われうる）
-mysql_innodb_flush_log_at_trx_commit: 2
-# true ならバイナリログを切る（レプリカ無しの素振り向け）
-mysql_skip_log_bin: true
-# skip-log-bin でないときの sync_binlog（0=OS に任せる）
-mysql_sync_binlog: 0
-# InnoDB buffer pool サイズ（DB 専用機のメモリに合わせて調整）
-mysql_innodb_buffer_pool_size: 2G
-# buffer pool の分割数（目安: おおよそ 1 インスタンス ≒ 1GB）
-mysql_innodb_buffer_pool_instances: 2
-# redo を書く前のメモリバッファ
-mysql_innodb_log_buffer_size: 64M
-# redo ログファイルサイズ（大きいほど checkpoint 頻度↓。再起動時反映）
-mysql_innodb_log_file_size: 512M
-# データファイル I/O 方式（O_DIRECT で OS キャッシュとの二重化を避ける）
-mysql_innodb_flush_method: O_DIRECT
-# 普段の dirty page 書き出しペース目安（NVMe なら高め）
-mysql_innodb_io_capacity: 2000
-# 上記の上限
-mysql_innodb_io_capacity_max: 4000
-# mysqld の待受アドレス（他ホストのアプリから繋ぐなら 0.0.0.0）
-mysql_bind_address: "0.0.0.0"
-# 最大同時接続数
-mysql_max_connections: 1000
-# cnf では書けない DB ユーザー権限。リモートから isucon ユーザーで繋ぐための SQL
 mysql_remote_grant_sql: >-
   CREATE USER IF NOT EXISTS 'isucon'@'%' IDENTIFIED BY 'isucon';
   GRANT ALL PRIVILEGES ON *.* TO 'isucon'@'%' WITH GRANT OPTION;
   FLUSH PRIVILEGES;
-# pt-query-digest のタイムアウト秒（巨大 slow log で固まらないようにする）
 pt_query_digest_timeout_seconds: 180
-# pt-query-digest 追加オプション（重いとき例: ["--report-format", "profile"]）
 pt_query_digest_options: []
 
-# --- netdata（ホストメトリクス）---
-# false にすると bench での netdata 取得をスキップ
 netdata_enabled: true
-# systemd サービス名
 netdata_service: netdata
-# サーバー localhost 上の netdata URL（公開せず SSH トンネルで見る）
 netdata_url: http://127.0.0.1:19999
-# ベンチ期間中に取得して集計するチャート名
 netdata_charts:
   - system.cpu
   - system.ram

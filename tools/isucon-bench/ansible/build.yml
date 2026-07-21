@@ -16,14 +16,11 @@
           - build_command | length > 0
           - app_service is defined
           - app_service | length > 0
-          - app_limit_nofile is defined
-          - app_gogc is defined
-          - app_gomemlimit is defined
           - app_unix_socket is defined
           - app_unix_socket | length > 0
         fail_msg: >-
-          Set app_working_dir, build_command, app_service, app_limit_nofile,
-          app_gogc, app_gomemlimit and app_unix_socket in group_vars/all.yml.
+          Set app_working_dir, build_command, app_service and app_unix_socket
+          in group_vars/all.yml.
       when: inventory_hostname in groups['app']
 
   tasks:

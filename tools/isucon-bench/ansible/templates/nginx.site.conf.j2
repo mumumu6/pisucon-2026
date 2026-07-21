@@ -1,36 +1,36 @@
-# conf.d は http コンテキストに include されるため、ここで log_format を定義できる。
-log_format {{ access_log_format }} "time:$time_local"
-                    "\thost:$remote_addr"
-                    "\tforwardedfor:$http_x_forwarded_for"
-                    "\treq:$request"
-                    "\tstatus:$status"
-                    "\tmethod:$request_method"
-                    "\turi:$request_uri"
-                    "\tsize:$body_bytes_sent"
-                    "\treferer:$http_referer"
-                    "\tua:$http_user_agent"
-                    "\treqtime:$request_time"
-                    "\tapptime:$upstream_response_time"
-                    "\tvhost:$host";
+# conf.d は http コンテキストに include される。大会で path が違ったらこのファイルを直接直す。
+# 必要なときだけ差し込む変数: frontend_public_dir / access_log / app_unix_socket
 
-upstream {{ nginx_upstream_name }} {
-{% if nginx_app_unix_socket | length > 0 %}
-    server unix:{{ nginx_app_unix_socket }};
-{% else %}
-    server {{ nginx_app_backend_host }}:{{ nginx_app_port }};
-{% endif %}
-    keepalive {{ nginx_upstream_keepalive }};
+log_format ltsv "time:$time_local"
+                "\thost:$remote_addr"
+                "\tforwardedfor:$http_x_forwarded_for"
+                "\treq:$request"
+                "\tstatus:$status"
+                "\tmethod:$request_method"
+                "\turi:$request_uri"
+                "\tsize:$body_bytes_sent"
+                "\treferer:$http_referer"
+                "\tua:$http_user_agent"
+                "\treqtime:$request_time"
+                "\tapptime:$upstream_response_time"
+                "\tvhost:$host";
+
+upstream app {
+    # 同一ホスト: unix socket。分離構成なら例えば次に差し替え:
+    # server 10.0.0.202:3000;
+    server unix:{{ app_unix_socket }};
+    keepalive 256;
 }
 
 server {
-    listen {{ nginx_listen_port }};
-    listen [::]:{{ nginx_listen_port }};
+    listen 80;
+    listen [::]:80;
     server_name _;
 
-    client_body_buffer_size {{ nginx_client_body_buffer_size }};
-    access_log {{ access_log }} {{ access_log_format }};
+    client_body_buffer_size 256k;
+    access_log {{ access_log }} ltsv;
 
-    # JSON レスポンスを軽量圧縮（ベンチは Accept-Encoding を送らない想定の大会も多い）
+    # 切るときは gzip off; にする
     gzip on;
     gzip_comp_level 1;
     gzip_min_length 1024;
@@ -40,18 +40,15 @@ server {
     root {{ frontend_public_dir }};
     index index.html;
 
-{% if nginx_assets_prefix | length > 0 %}
-    location ^~ {{ nginx_assets_prefix }} {
+    location ^~ /assets/ {
         try_files $uri =404;
         access_log off;
         expires 1y;
         add_header Cache-Control "public, immutable";
     }
-{% endif %}
 
-{% for path in nginx_proxy_exact_locations %}
-    location = {{ path }} {
-        proxy_pass http://{{ nginx_upstream_name }};
+    location = /initialize {
+        proxy_pass http://app;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
         proxy_set_header Host $host;
@@ -59,11 +56,9 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
-{% endfor %}
 
-{% for path in nginx_proxy_prefix_locations %}
-    location ^~ {{ path }} {
-        proxy_pass http://{{ nginx_upstream_name }};
+    location ^~ /api/ {
+        proxy_pass http://app;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
         proxy_set_header Host $host;
@@ -71,15 +66,9 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
-{% endfor %}
 
-{% if nginx_serve_spa | bool %}
+    # SPA。不要なら try_files $uri $uri/ =404; に変える
     location / {
         try_files $uri $uri/ /index.html;
     }
-{% else %}
-    location / {
-        try_files $uri $uri/ =404;
-    }
-{% endif %}
 }

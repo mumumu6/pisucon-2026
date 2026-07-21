@@ -7,30 +7,18 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 vars="$root/tools/isucon-bench/ansible/group_vars/all.yml"
 template="$root/tools/isucon-bench/ansible/templates/pprof.go.j2"
 rel="webapp/go/pprof.go"
-listen="127.0.0.1:6060"
 state="${1:-}"
 
-# group_vars から単純なスカラーを1つ読む（無ければ既定値のまま）
-yaml_get() {
-  local key="$1" re="$2"
-  [[ -f "$vars" ]] || return 0
-  local v
-  v="$(sed -nE "s/^${key}:[[:space:]]*${re}.*/\\1/p" "$vars" | head -1)"
-  [[ -n "$v" ]] && printf '%s\n' "$v"
-}
-
-rel="$(yaml_get local_pprof_relative '([^#[:space:]]+)' || true)"
-rel="${rel:-webapp/go/pprof.go}"
-listen="$(yaml_get pprof_listen '"([^"]+)"' || true)"
-listen="${listen:-127.0.0.1:6060}"
+if [[ -f "$vars" ]]; then
+  v="$(sed -nE 's/^local_pprof_relative:[[:space:]]*([^#[:space:]]+).*/\1/p' "$vars" | head -1)"
+  [[ -n "$v" ]] && rel="$v"
+fi
 target="$root/$rel"
 
 case "$state" in
   on)
     mkdir -p "$(dirname "$target")"
-    # テンプレの {{ pprof_listen }} だけ埋めて配置
-    sed "s/{{ pprof_listen }}/${listen//\//\\/}/g" "$template" >"$target"
-    chmod 0644 "$target"
+    install -m 0644 "$template" "$target"
     msg="chore: enable pprof"
     ;;
   off)
@@ -43,7 +31,6 @@ case "$state" in
     ;;
 esac
 
-# 差分がなければ何もしない（既に tracked / 存在するときだけ git 操作）
 git -C "$root" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1 || [[ -e "$target" ]] || exit 0
 git -C "$root" add --all -- "$rel"
 git -C "$root" diff --cached --quiet -- "$rel" && exit 0

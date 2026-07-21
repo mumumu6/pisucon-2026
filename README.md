@@ -14,12 +14,12 @@ sudo apt install -y ansible jq git gh
 ## 別回の ISUCON で使うとき
 
 1. `tools/isucon-bench/ansible/inventory.yml` … 接続先 IP と `app` / `db` / `nginx` / `reporter`
-2. `tools/isucon-bench/ansible/group_vars/all.yml` 先頭 … `app_name` / パス / Git / ビルドコマンド / nginx ルーティング
-3. （必要なら）`templates/nginx.site.conf.j2` … ルーティング変数で足りない大会向け
+2. `tools/isucon-bench/ansible/group_vars/all.yml` 先頭 … `app_name` / パス / Git / ビルドコマンド
+3. （必要なら）`templates/nginx.site.conf.j2` や `mysql-performance.cnf.j2` を直接編集
 4. **GitHub 用 SSH 鍵（デプロイ鍵）**を `tools/isucon-bench/ansible/files/github_id_ed25519[.pub]` に配置（gitignore 済み）  
    → サーバーから private リポジトリを pull するための鍵。**チームで1組あればよい**（誰か1人の鍵でOK）。詳細は `tools/isucon-bench/ansible/files/README.md`
 
-変数の意味は `group_vars/all.yml` の各行コメントを参照。
+変数の意味は `group_vars/all.yml` のコメントを参照。nginx の location / gzip や DB の数値はテンプレ直書き。
 
 ```bash
 make bootstrap
@@ -66,7 +66,7 @@ make collect SESSION=20260719-123000
 
 | ターゲット | 用途 |
 | --- | --- |
-| `bootstrap` | ツール導入 + git + pprof ON + 設定バックアップ回収 |
+| `bootstrap` | ツール導入 + git + 計測系 ON + 設定バックアップ回収 |
 | `fleet-setup` | 計測ツール導入＋計測系 ON |
 | `fleet-enable` / `fleet-disable` | 計測系（netdata / slow query / pprof）の ON/OFF |
 | `mysql-tune` | MariaDB 性能 cnf 反映 |

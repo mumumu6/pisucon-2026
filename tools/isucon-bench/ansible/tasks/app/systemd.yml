@@ -1,7 +1,6 @@
 ---
-# setup / build から共有。アプリの systemd 設定を反映する。
-# drop-in には LimitNOFILE / GOGC / GOMEMLIMIT / unix socket などをまとめて書く。
-# force_daemon_reload: true なら変更がなくても daemon-reload する。
+# setup / build から共有。アプリの systemd drop-in を反映する。
+# 中身（GOGC 等）は templates/app.service-override.conf.j2 を直接編集する。
 - name: アプリのsystemd設定を反映する
   become: true
   block:
