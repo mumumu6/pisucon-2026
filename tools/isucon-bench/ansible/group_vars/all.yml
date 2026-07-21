@@ -67,7 +67,17 @@ github_ssh_known_hosts: |
 alp_version: "1.0.21"
 access_log: /var/log/nginx/access.log
 access_log_format: ltsv
-alp_options: []
+# UUID パスを正規化（長いパスを先に書く）
+alp_options:
+  - -m
+  - >-
+    /api/isu/[0-9a-f-]+/icon,
+    /api/isu/[0-9a-f-]+/graph,
+    /api/isu/[0-9a-f-]+,
+    /api/condition/[0-9a-f-]+,
+    /isu/[0-9a-f-]+/condition,
+    /isu/[0-9a-f-]+/graph,
+    /isu/[0-9a-f-]+
 
 mysql_admin_command: mysql
 mysql_service: mariadb
