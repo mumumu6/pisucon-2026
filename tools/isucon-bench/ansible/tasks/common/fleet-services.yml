@@ -1,0 +1,11 @@
+---
+# inventory の app/nginx/db 所属に合わせてサービスを起動・停止する
+- name: 役割に合わせてサービスを起動または停止する
+  ansible.builtin.systemd:
+    name: "{{ item.name }}"
+    state: "{{ 'started' if (item.roles | intersect(group_names) | length) > 0 else 'stopped' }}"
+    enabled: "{{ (item.roles | intersect(group_names) | length) > 0 }}"
+  loop: "{{ fleet_services }}"
+  loop_control:
+    label: "{{ item.name }}"
+  failed_when: false

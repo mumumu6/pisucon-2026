@@ -84,19 +84,23 @@ Makefile
     │   ├── ansible.cfg
     │   ├── inventory.yml
     │   ├── group_vars/all.yml      # 大会変数は先頭セクション
-    │   ├── setup.yml               # ツール導入（tags: app,db,nginx,mysql,…）
-    │   ├── git.yml / build.yml
-    │   ├── bench.yml / collect.yml
-    │   ├── instrument.yml / monitor.yml
-    │   ├── mysql.yml / restart.yml
-    │   ├── tasks/                  # 共有タスク
-    │   └── templates/              # nginx.site / app.service-override / pprof …
-    └── scripts/                    # publish, toggle-pprof, serve-pprof, netdata-view
+    │   ├── setup.yml / build.yml / bench.yml / …  # 薄い playbook（組み立てだけ）
+    │   ├── handlers/main.yml
+    │   ├── tasks/
+    │   │   ├── common/   # packages, github-ssh, git-sync, fleet-services
+    │   │   ├── app/      # packages, systemd, build, restart, deploy, pprof
+    │   │   ├── nginx/    # packages, alp, tuning, site, restart
+    │   │   ├── db/       # packages, performance, restart, slow-query
+    │   │   ├── monitor/  # toggle（netdata + slow query）
+    │   │   └── bench/    # prepare, measure, analyze-*
+    │   ├── templates/
+    │   └── files/        # GitHub SSH 鍵（gitignore）
+    └── scripts/
 ```
 
-重複していた `enable.yml` / `disable.yml` は `monitor.yml` に統合しています。
-systemd / nginx サイト反映は `tasks/app-systemd.yml` と `tasks/nginx-site.yml` にまとめ、
-`setup.yml` と `build.yml` から共有しています。
+役割ごと・再利用単位に `tasks/` を分割しています。例えばアプリのビルド＋再起動は
+`tasks/app/deploy.yml` にまとめ、`build.yml` と `bench.yml` の両方から使います。
+systemd / nginx サイト反映も同様に共有です。
 
 ## Ansible の確認
 

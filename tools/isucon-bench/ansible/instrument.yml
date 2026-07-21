@@ -2,8 +2,6 @@
 - name: アプリホストのpprofを切り替える
   hosts: app
   gather_facts: false
-  vars:
-    pprof_source: "{{ app_working_dir }}/{{ pprof_filename }}"
   pre_tasks:
     - name: pprof設定を検証する
       ansible.builtin.assert:
@@ -11,27 +9,5 @@
         fail_msg: "instrument_state must be on or off"
 
   tasks:
-    - name: pprofコードを配置する
-      ansible.builtin.template:
-        src: templates/pprof.go.j2
-        dest: "{{ pprof_source }}"
-        mode: "0644"
-        backup: true
-      register: pprof_source_on
-      when: instrument_state == 'on'
-
-    - name: pprofコードを削除する
-      ansible.builtin.file:
-        path: "{{ pprof_source }}"
-        state: absent
-      register: pprof_source_off
-      when: instrument_state == 'off'
-
-    - name: pprof変更をアプリへ反映する
-      ansible.builtin.command:
-        argv: [/bin/bash, -lc, "{{ build_command }} && {{ restart_command }}"]
-        chdir: "{{ app_working_dir }}"
-      changed_when: true
-      when: >-
-        (pprof_source_on.changed | default(false)) or
-        (pprof_source_off.changed | default(false))
+    - name: pprofを切り替える
+      ansible.builtin.include_tasks: tasks/app/pprof.yml

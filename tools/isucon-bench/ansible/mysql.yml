@@ -1,14 +1,10 @@
 ---
-# make mysql-tune 用。setup 全体を流さず性能 cnf だけ反映する。
+# make mysql-tune 用。性能 cnf だけ反映する。
 - name: Git管理されたMariaDB性能設定を反映する
   hosts: db
   become: true
+  handlers:
+    - ansible.builtin.import_tasks: handlers/main.yml
   tasks:
     - name: MariaDB性能設定を反映する
-      ansible.builtin.include_tasks: tasks/mysql-performance.yml
-
-  handlers:
-    - name: MariaDBを再起動する
-      ansible.builtin.systemd:
-        name: "{{ mysql_service }}"
-        state: restarted
+      ansible.builtin.include_tasks: tasks/db/performance.yml

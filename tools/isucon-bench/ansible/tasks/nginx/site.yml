@@ -1,5 +1,5 @@
 ---
-# setup.yml / build.yml から共有。nginx サイト設定を反映する。
+# サイト設定テンプレート配置 + nginx -t。再起動は restart_nginx（既定 true）
 - name: Nginxのサイト設定を配置する
   ansible.builtin.template:
     src: templates/nginx.site.conf.j2
@@ -17,8 +17,5 @@
   changed_when: false
 
 - name: Nginxを再起動する
-  ansible.builtin.systemd:
-    name: nginx
-    state: restarted
-  become: true
+  ansible.builtin.include_tasks: tasks/nginx/restart.yml
   when: restart_nginx | default(true)

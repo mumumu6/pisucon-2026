@@ -1,0 +1,26 @@
+---
+- name: Nginxのaccess logを計測結果へコピーする
+  ansible.builtin.copy:
+    src: "{{ access_log }}"
+    dest: "{{ session_dir }}/access.log"
+    remote_src: true
+    owner: "{{ ansible_user }}"
+    mode: "0644"
+  become: true
+  failed_when: false
+  when: access_log_stat.stat.exists | default(false)
+
+- name: AlpでNginxのaccess logを解析する
+  ansible.builtin.command:
+    argv: >-
+      {{ ['alp', access_log_format, '--file', session_dir + '/access.log',
+          '--sort', 'sum', '--reverse'] + alp_options }}
+  register: alp_result
+  changed_when: false
+  failed_when: false
+
+- name: Alp解析結果を保存する
+  ansible.builtin.copy:
+    content: "{{ alp_result.stdout | default('No access log data collected.', true) }}\n"
+    dest: "{{ session_dir }}/alp.txt"
+    mode: "0644"

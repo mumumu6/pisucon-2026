@@ -1,0 +1,11 @@
+---
+- name: Nginxホストへ静的配信用パッケージを導入する
+  ansible.builtin.apt:
+    name:
+      - nginx
+    state: present
+    lock_timeout: 600
+  register: nginx_packages
+  retries: 40
+  delay: 15
+  until: nginx_packages is succeeded

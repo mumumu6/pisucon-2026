@@ -1,0 +1,27 @@
+---
+- name: 取得したCPUプロファイルを確認する
+  ansible.builtin.stat:
+    path: "{{ session_dir }}/cpu.pprof"
+  register: cpu_profile_stat
+
+- name: 累積CPUプロファイルを解析する
+  ansible.builtin.command:
+    argv:
+      - go
+      - tool
+      - pprof
+      - -top
+      - -cum
+      - "{{ session_dir }}/cpu.pprof"
+  register: pprof_top_result
+  changed_when: false
+  failed_when: false
+  when:
+    - cpu_profile_stat.stat.exists | default(false)
+    - cpu_profile_stat.stat.size | default(0) > 0
+
+- name: CPUプロファイル解析結果を保存する
+  ansible.builtin.copy:
+    content: "{{ pprof_top_result.stdout | default('No CPU profile collected.', true) }}\n"
+    dest: "{{ session_dir }}/pprof.txt"
+    mode: "0644"

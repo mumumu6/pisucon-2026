@@ -1,0 +1,10 @@
+---
+# slow_query_state: on | off
+- name: MariaDBのスロークエリログを制御する
+  ansible.builtin.command:
+    argv:
+      - "{{ mysql_admin_command }}"
+      - >-
+        --execute={% if slow_query_state == 'on' %}SET GLOBAL long_query_time={{ mysql_slow_query_time }}; SET GLOBAL slow_query_log='ON';{% else %}SET GLOBAL slow_query_log='OFF';{% endif %}
+  become: true
+  changed_when: true

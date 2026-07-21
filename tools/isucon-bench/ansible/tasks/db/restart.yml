@@ -1,0 +1,6 @@
+---
+- name: MariaDBを再起動する
+  ansible.builtin.systemd:
+    name: "{{ mysql_service }}"
+    state: restarted
+  become: true

@@ -1,5 +1,5 @@
 ---
-# monitor_state: on | off （Makefile の fleet-enable / fleet-disable / finish から渡す）
+# monitor_state: on | off
 - name: netdata と slow query log を切り替える
   hosts: all
   gather_facts: false
@@ -12,4 +12,4 @@
 
   tasks:
     - name: 計測系を切り替える
-      ansible.builtin.include_tasks: tasks/monitor.yml
+      ansible.builtin.include_tasks: tasks/monitor/toggle.yml

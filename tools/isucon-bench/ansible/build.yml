@@ -1,8 +1,10 @@
 ---
-# pull 後のデプロイ一式。systemd / build / nginx まで載せる。
+# pull 後のデプロイ。app/deploy と nginx/site を再利用。
 - name: アプリをビルド・再起動し、関連設定を反映する
   hosts: app:nginx
   gather_facts: false
+  handlers:
+    - ansible.builtin.import_tasks: handlers/main.yml
 
   pre_tasks:
     - name: ビルド設定を検証する
@@ -25,28 +27,12 @@
       when: inventory_hostname in groups['app']
 
   tasks:
-    - name: アプリのsystemd overrideを配置する
-      ansible.builtin.include_tasks: tasks/app-systemd.yml
-      vars:
-        force_daemon_reload: true
-      when: inventory_hostname in groups['app']
-
-    - name: アプリをビルドする
-      ansible.builtin.command:
-        argv: [/bin/bash, -lc, "{{ build_command }}"]
-        chdir: "{{ app_working_dir }}"
-      changed_when: true
-      when: inventory_hostname in groups['app']
-
-    - name: アプリを再起動する
-      ansible.builtin.systemd:
-        name: "{{ app_service }}"
-        state: restarted
-      become: true
+    - name: アプリをデプロイする
+      ansible.builtin.include_tasks: tasks/app/deploy.yml
       when: inventory_hostname in groups['app']
 
     - name: Nginxのサイト設定を反映する
-      ansible.builtin.include_tasks: tasks/nginx-site.yml
+      ansible.builtin.include_tasks: tasks/nginx/site.yml
       vars:
         restart_nginx: true
       when: inventory_hostname in groups['nginx']

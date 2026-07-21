@@ -1,0 +1,17 @@
+---
+- name: Nginxを再起動する
+  ansible.builtin.systemd:
+    name: nginx
+    daemon_reload: true
+    state: restarted
+
+- name: MariaDBを再起動する
+  ansible.builtin.systemd:
+    name: "{{ mysql_service }}"
+    state: restarted
+
+- name: Goアプリのsystemd設定を反映する
+  ansible.builtin.systemd:
+    name: "{{ app_service }}"
+    daemon_reload: true
+    state: restarted

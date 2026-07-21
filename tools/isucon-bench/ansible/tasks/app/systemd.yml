@@ -1,5 +1,6 @@
 ---
-# setup.yml / build.yml から共有。アプリの systemd drop-in を反映する。
+# setup / build から共有。アプリの systemd drop-in を反映する。
+# force_daemon_reload: true なら変更がなくても daemon-reload する。
 - name: Goアプリのsystemd overrideディレクトリを作る
   ansible.builtin.file:
     path: "/etc/systemd/system/{{ app_service }}.d"

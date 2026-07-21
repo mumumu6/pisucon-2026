@@ -1,0 +1,26 @@
+---
+# instrument_state: on | off
+- name: pprofコードを配置する
+  ansible.builtin.template:
+    src: templates/pprof.go.j2
+    dest: "{{ app_working_dir }}/{{ pprof_filename }}"
+    mode: "0644"
+    backup: true
+  register: pprof_source_on
+  when: instrument_state == 'on'
+
+- name: pprofコードを削除する
+  ansible.builtin.file:
+    path: "{{ app_working_dir }}/{{ pprof_filename }}"
+    state: absent
+  register: pprof_source_off
+  when: instrument_state == 'off'
+
+- name: pprof変更をアプリへ反映する
+  ansible.builtin.command:
+    argv: [/bin/bash, -lc, "{{ build_command }} && {{ restart_command }}"]
+    chdir: "{{ app_working_dir }}"
+  changed_when: true
+  when: >-
+    (pprof_source_on.changed | default(false)) or
+    (pprof_source_off.changed | default(false))

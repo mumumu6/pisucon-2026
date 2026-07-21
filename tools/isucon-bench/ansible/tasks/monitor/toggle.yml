@@ -1,0 +1,14 @@
+---
+# monitor_state: on | off（netdata + slow query をまとめて切替）
+- name: Netdataを制御する
+  ansible.builtin.systemd:
+    name: "{{ netdata_service }}"
+    state: "{{ 'started' if monitor_state == 'on' else 'stopped' }}"
+    enabled: "{{ monitor_state == 'on' }}"
+  become: true
+
+- name: スロークエリログを制御する
+  ansible.builtin.include_tasks: tasks/db/slow-query.yml
+  vars:
+    slow_query_state: "{{ monitor_state }}"
+  when: inventory_hostname in groups.get('db', [])

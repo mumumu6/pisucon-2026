@@ -1,0 +1,10 @@
+---
+- name: アプリホストへGoを導入する
+  ansible.builtin.apt:
+    name: golang-go
+    state: present
+    lock_timeout: 600
+  register: go_packages
+  retries: 40
+  delay: 15
+  until: go_packages is succeeded
