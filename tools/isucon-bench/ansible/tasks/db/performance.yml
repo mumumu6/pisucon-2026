@@ -1,9 +1,21 @@
 ---
-# MariaDB の設定をまとめて反映する（slow log 置き場 / 性能 cnf / リモート権限）
-# bind-address は常に 0.0.0.0、リモート GRANT も常に行う（1台構成でも害は少ない）。
+# MariaDB の設定を反映する（slow log 置き場 / server-config の cnf / リモート権限）
+# cnf の実体は repo の server-config/（make bootstrap が取り込み、以後 git 管理）。
 # cnf が変わったときだけ末尾で再起動する（handlers は使わない）。
 - name: MariaDBの設定を反映する
   block:
+    - name: server-config の cnf を確認する
+      ansible.builtin.stat:
+        path: "{{ mysql_cnf_local }}"
+      delegate_to: localhost
+      become: false
+      register: local_mysql_cnf
+
+    - name: 取り込み済みか検証する
+      ansible.builtin.assert:
+        that: local_mysql_cnf.stat.exists
+        fail_msg: "{{ mysql_cnf_local }} がありません。先に make bootstrap を実行してください。"
+
     - name: スローログ用の置き場を用意する
       ansible.builtin.file:
         path: "{{ slow_log | dirname }}"
@@ -22,21 +34,20 @@
         modification_time: preserve
         access_time: preserve
 
-    - name: 性能設定を反映する
-      ansible.builtin.template:
-        src: templates/mysql-performance.cnf.j2
-        dest: "{{ mysql_performance_cnf }}"
+    - name: server-config の cnf を反映する
+      ansible.builtin.copy:
+        src: "{{ mysql_cnf_local }}"
+        dest: "{{ mysql_server_cnf }}"
         owner: root
         group: root
         mode: "0644"
-        backup: true
-      register: mysql_performance_cnf_result
+      register: mysql_cnf_result
 
     - name: MariaDBを再起動する
       ansible.builtin.include_tasks: tasks/common/services-restart.yml
       vars:
-        service: mariadb
-      when: mysql_performance_cnf_result is changed
+        service: db
+      when: mysql_cnf_result is changed
 
     # cnf ではユーザー権限は書けない。初期は localhost だけなので '%' も許可する。
     - name: リモート接続用ユーザーを許可する

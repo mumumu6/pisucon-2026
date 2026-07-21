@@ -1,7 +1,7 @@
 ---
 # =============================================================================
 # 大会ごとに書き換える設定（別回の ISUCON では主にここを変える）
-# nginx の location / gzip、MariaDB の数値などは templates/nginx.conf.j2 などを直接編集する
+# nginx / MariaDB の設定値は server-config/（make bootstrap が取り込み、git 管理）を直接編集する
 # =============================================================================
 
 # アプリの識別名。サービス名・socket・nginx conf 名などの組み立て元。
@@ -30,8 +30,9 @@ app_unix_socket: "/run/{{ app_name }}/{{ app_name }}.sock"
 # nginx と app が別ホストのときアプリが待つ TCP ポート（main.go の SERVER_APP_PORT）
 app_listen_port: 3000
 
-# --- Nginx（中身は templates/nginx.conf.j2。upstream 先は inventory から自動）---
+# --- Nginx（中身は server-config/nginx.conf。bootstrap が取り込み、以後 git 管理）---
 nginx_conf_dest: /etc/nginx/nginx.conf
+nginx_sites_dir: /etc/nginx/sites-enabled
 
 # --- pprof ---
 pprof_filename: pprof.go
@@ -41,10 +42,13 @@ pprof_seconds: 75
 pprof_view_port: 6070
 
 # =============================================================================
-# 計測・DB・共通（パスやサービス名など。数値チューニングは templates/ 側）
+# 計測・DB・共通（パスやサービス名など。数値チューニングは server-config / files/wiring）
 # =============================================================================
 
-local_log_root: "{{ playbook_dir }}/../../../log"
+repo_root: "{{ playbook_dir }}/../../.."
+local_log_root: "{{ repo_root }}/log"
+# サーバー設定の実体（bootstrap が取り込み、deploy / mysql-tune が配布する）
+server_config_root: "{{ repo_root }}/server-config"
 
 fleet_services:
   - name: "{{ app_service }}"
@@ -84,7 +88,9 @@ mysql_admin_command: mysql
 mysql_service: mariadb
 mysql_slow_query_time: 0
 slow_log: /var/log/mysql/mariadb-slow.log
-mysql_performance_cnf: /etc/mysql/mariadb.conf.d/99-isucon-performance.cnf
+# server-config への取り込み名・配布先（大会でパスが違うときは mysql_server_cnf だけ変える）
+mysql_server_cnf: /etc/mysql/mariadb.conf.d/50-server.cnf
+mysql_cnf_local: "{{ server_config_root }}/{{ mysql_server_cnf | basename }}"
 # DB 接続（リモート GRANT 用。env.sh の MYSQL_HOST は Ansible では触らない）
 mysql_user: isucon
 mysql_password: isucon

@@ -9,25 +9,25 @@ PPROF_VIEW_SCRIPT := tools/isucon-bench/scripts/serve-pprof
 NETDATA_VIEW_SCRIPT := tools/isucon-bench/scripts/netdata-view
 BENCH_SESSION ?= $(shell date +%Y%m%d-%H%M%S)
 
-.PHONY: help bootstrap server-sync pull deploy restart \
-	mysql-tune collect collect-backups pprof-view netdata-view \
+.PHONY: help bootstrap config-pull server-sync deploy restart \
+	mysql-tune collect pprof-view netdata-view \
 	fleet-enable fleet-disable finish publish bench get-log-detail
 
 help: ## Makeターゲットと用途を表示する
 	@awk 'BEGIN { FS = ":.*## "; printf "Usage: make <target> [OPTION=value]\n\n" } /^[a-zA-Z0-9_-]+:.*## / { printf "  %-18s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
-bootstrap: ## 計測ツール導入 + git sync + 計測系 ON
+bootstrap: ## サーバー設定の取り込み(git管理) + 計測ツール導入 + 計測系 ON
+	@$(MAKE) --no-print-directory config-pull
 	@$(PLAYBOOK) $(ANSIBLE_DIR)/setup.yml
 	@$(MAKE) --no-print-directory fleet-enable
+
+config-pull: ## サーバーの素の設定を server-config/ へ取り込み commit/push する
+	@$(PLAYBOOK) $(ANSIBLE_DIR)/config-pull.yml
 
 server-sync: ## GitHubの指定ブランチを全サーバーへ同期する
 	@$(PLAYBOOK) $(ANSIBLE_DIR)/git.yml
 
-pull: ## ベンチ結果と設定バックアップを手元へ取得。例: make pull SESSION=20260719-123000
-	@$(MAKE) --no-print-directory collect SESSION=$(SESSION)
-	@$(MAKE) --no-print-directory collect-backups
-
-deploy: ## server-sync + systemd/ビルド/nginx 反映
+deploy: ## server-sync + systemd/ビルド/nginx(server-config) 反映
 	@$(MAKE) --no-print-directory server-sync
 	@$(PLAYBOOK) $(ANSIBLE_DIR)/deploy.yml
 
@@ -46,11 +46,8 @@ fleet-disable: ## 計測系 OFF
 
 finish: fleet-disable ## 最終計測前に計測系を外す（= fleet-disable）
 
-mysql-tune: ## MariaDB性能設定を反映する
+mysql-tune: ## MariaDB設定(server-config)を反映する
 	@$(PLAYBOOK) $(ANSIBLE_DIR)/mysql.yml
-
-collect-backups: ## Ansible backup ファイルを手元へ回収する
-	@$(PLAYBOOK) $(ANSIBLE_DIR)/collect-backups.yml
 
 pprof-view: ## CPUプロファイルをlocalhostで開く。例: make pprof-view SESSION=...
 	@$(PPROF_VIEW_SCRIPT) "$(SESSION)"

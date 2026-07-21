@@ -1,5 +1,5 @@
 ---
-# サービス再起動の単一入口。service: nginx | mariadb | app
+# サービス再起動の単一入口。service: nginx | db | app
 - name: Nginxを再起動する
   ansible.builtin.systemd:
     name: nginx
@@ -8,12 +8,12 @@
   become: true
   when: service == 'nginx'
 
-- name: MariaDBを再起動する
+- name: DBを再起動する
   ansible.builtin.systemd:
     name: "{{ mysql_service }}"
     state: restarted
   become: true
-  when: service == 'mariadb'
+  when: service == 'db'
 
 - name: アプリを再起動する
   ansible.builtin.systemd:

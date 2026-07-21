@@ -1,13 +1,30 @@
 ---
-# Nginx 設定を反映する。
-# nginx_config_scope: full（既定）= systemd drop-in + 既定サイト削除 + nginx.conf
-#                     site       = nginx.conf のみ（make deploy 用）
+# Nginx 設定を反映する。実体は repo の server-config/（make bootstrap が取り込み、以後 git 管理）。
+# nginx_config_scope: full（既定）= systemd drop-in + nginx.conf + サイト設定
+#                     site       = nginx.conf + サイト設定のみ（make deploy 用）
 # 再起動は末尾で1回だけ（handlers は使わない）。
 - name: Nginxの設定を反映する
   become: true
   block:
-    - name: トポロジを解決する
-      ansible.builtin.include_tasks: tasks/common/topology-facts.yml
+    - name: server-config の nginx.conf を確認する
+      ansible.builtin.stat:
+        path: "{{ server_config_root }}/nginx.conf"
+      delegate_to: localhost
+      become: false
+      register: local_nginx_conf
+
+    - name: 取り込み済みか検証する
+      ansible.builtin.assert:
+        that: local_nginx_conf.stat.exists
+        fail_msg: "server-config/nginx.conf がありません。先に make bootstrap を実行してください。"
+
+    - name: server-config の nginx systemd drop-in を確認する
+      ansible.builtin.stat:
+        path: "{{ server_config_root }}/systemd/nginx.override.conf"
+      delegate_to: localhost
+      become: false
+      register: local_nginx_override
+      when: (nginx_config_scope | default('full')) == 'full'
 
     - name: systemd drop-in 用ディレクトリを用意する
       ansible.builtin.file:
@@ -16,32 +33,38 @@
         owner: root
         group: root
         mode: "0755"
-      when: (nginx_config_scope | default('full')) == 'full'
+      when: >-
+        (nginx_config_scope | default('full')) == 'full'
+        and (local_nginx_override.stat.exists | default(false))
 
     - name: systemd drop-in を反映する
-      ansible.builtin.template:
-        src: templates/nginx.service-override.conf.j2
+      ansible.builtin.copy:
+        src: "{{ server_config_root }}/systemd/nginx.override.conf"
         dest: /etc/systemd/system/nginx.service.d/override.conf
         owner: root
         group: root
         mode: "0644"
-        backup: true
-      when: (nginx_config_scope | default('full')) == 'full'
-
-    - name: 既定サイトを外す
-      ansible.builtin.file:
-        path: /etc/nginx/sites-enabled/default
-        state: absent
-      when: (nginx_config_scope | default('full')) == 'full'
+      when: >-
+        (nginx_config_scope | default('full')) == 'full'
+        and (local_nginx_override.stat.exists | default(false))
 
     - name: nginx.conf を反映する
-      ansible.builtin.template:
-        src: templates/nginx.conf.j2
+      ansible.builtin.copy:
+        src: "{{ server_config_root }}/nginx.conf"
         dest: "{{ nginx_conf_dest }}"
         owner: root
         group: root
         mode: "0644"
-        backup: true
+
+    - name: サイト設定を反映する
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "{{ nginx_sites_dir }}/{{ item | basename }}"
+        owner: root
+        group: root
+        mode: "0644"
+      with_fileglob:
+        - "{{ server_config_root }}/sites/*"
 
     - name: nginx -t で検証する
       ansible.builtin.command:

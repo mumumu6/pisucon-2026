@@ -4,7 +4,7 @@
 - name: ベンチ前にMariaDBを再起動する
   ansible.builtin.include_tasks: tasks/common/services-restart.yml
   vars:
-    service: mariadb
+    service: db
   when: inventory_hostname in groups['db']
 
 - name: デプロイ済みのGitリビジョンを取得する
