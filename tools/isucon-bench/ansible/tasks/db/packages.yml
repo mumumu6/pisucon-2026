@@ -1,0 +1,18 @@
+---
+- name: DBホストへMariaDBとpt-query-digestを導入する
+  ansible.builtin.apt:
+    name:
+      - mariadb-server
+      - percona-toolkit
+    state: present
+    lock_timeout: 600
+  register: database_packages
+  retries: 40
+  delay: 15
+  until: database_packages is succeeded
+
+- name: DBホストのMariaDBを起動・自動起動にする
+  ansible.builtin.systemd:
+    name: "{{ mysql_service }}"
+    state: started
+    enabled: true

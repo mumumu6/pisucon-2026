@@ -1,67 +1,70 @@
 #!/usr/bin/env bash
+# 手元のベンチ結果 (REPORT.md) から GitHub Issue を作る。
+# 使い方: publish [SESSION_ID|絶対パス]
+#   SESSION 省略時は log/ 配下の最新セッション
 set -Eeuo pipefail
 
-tool_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-repository_root="$(cd "$tool_root/../.." && pwd)"
-inventory="${ANSIBLE_INVENTORY:-$tool_root/ansible/inventory.yml}"
-requested_session="${1:-}"
+tool="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+root="$(cd "$tool/../.." && pwd)"
+inventory="${ANSIBLE_INVENTORY:-$tool/ansible/inventory.yml}"
+log_root="${LOCAL_LOG_ROOT:-$root/log}"
+session_arg="${1:-}"
+max_bytes=58000 # Issue / comment のだいたいの上限対策
 
-command -v ansible-inventory >/dev/null || { echo "ansible-inventory is required" >&2; exit 1; }
-command -v gh >/dev/null || { echo "gh is required; run gh auth login" >&2; exit 1; }
-command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
+need() { command -v "$1" >/dev/null || { echo "$1 is required" >&2; exit 1; }; }
+need ansible-inventory
+need gh
+need jq
 [[ -f "$inventory" ]] || { echo "inventory not found: $inventory" >&2; exit 1; }
 
-inventory_json="$(ansible-inventory --inventory "$inventory" --list)"
-reporter="$(jq --exit-status --raw-output '.reporter.hosts | select(length == 1) | .[0]' <<< "$inventory_json")" || {
-  echo "inventory must define exactly one reporter" >&2
-  exit 1
-}
-config="$(jq --compact-output --arg host "$reporter" '._meta.hostvars[$host]' <<< "$inventory_json")"
-log_root="${LOCAL_LOG_ROOT:-$repository_root/log}"
-github_repository="$(jq --raw-output '.github_repository // ""' <<< "$config")"
-create_issue="$(jq --raw-output '.create_github_issue // true' <<< "$config")"
+# inventory から reporter 1台の hostvars を取る
+inv_json="$(ansible-inventory -i "$inventory" --list)"
+reporter="$(jq -er '.reporter.hosts | select(length==1) | .[0]' <<<"$inv_json")" \
+  || { echo "inventory の reporter はちょうど1台にしてください" >&2; exit 1; }
+vars="$(jq -c --arg h "$reporter" '._meta.hostvars[$h]' <<<"$inv_json")"
+repo="$(jq -r '.github_repository // empty' <<<"$vars")"
+[[ "$(jq -r '.create_github_issue // true' <<<"$vars")" == true ]] \
+  || { echo "create_github_issue=false のためスキップ"; exit 0; }
 
-if [[ -n "$requested_session" ]]; then
-  [[ "$requested_session" = /* ]] && session="$requested_session" || session="$log_root/$requested_session"
+# 対象セッションディレクトリを決める
+if [[ -n "$session_arg" ]]; then
+  [[ "$session_arg" = /* ]] && session="$session_arg" || session="$log_root/$session_arg"
 else
-  session="$(find "$log_root" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
+  session="$(find "$log_root" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' \
+    | sort -nr | head -1 | cut -d' ' -f2-)"
 fi
-[[ -n "${session:-}" && -d "$session" ]] || { echo "benchmark session not found" >&2; exit 1; }
-
+[[ -n "${session:-}" && -d "$session" ]] || { echo "セッションが見つかりません" >&2; exit 1; }
 report="$session/REPORT.md"
-[[ -f "$report" ]] || { echo "report is missing; run make bench or make collect" >&2; exit 1; }
-[[ "$create_issue" == true ]] || { echo "GitHub Issue creation is disabled"; exit 0; }
+[[ -f "$report" ]] || { echo "REPORT.md がありません。先に make bench / collect" >&2; exit 1; }
 
-issue_body="$(mktemp)"
-trap 'rm -f "$issue_body" "${comment_body:-}"' EXIT
-head -c 58000 "$report" > "$issue_body"
-report_truncated=false
-if [[ "$(wc -c < "$report")" -gt 58000 ]]; then
-  report_truncated=true
-  printf '\n\n... truncated; the complete report remains below local_log_root.\n' >> "$issue_body"
+# 本文は長すぎると弾かれるので頭だけ載せる
+body="$(mktemp)"
+trap 'rm -f "$body" "${cmt:-}"' EXIT
+head -c "$max_bytes" "$report" >"$body"
+truncated=false
+if (( $(wc -c <"$report") > max_bytes )); then
+  truncated=true
+  printf '\n\n... truncated; 全文は手元の log/ を見てください。\n' >>"$body"
 fi
 
 title="ISUCON benchmark $(basename "$session")"
-if [[ -n "$github_repository" ]]; then
-  issue_url="$(gh issue create --repo "$github_repository" --title "$title" --body-file "$issue_body")"
-else
-  issue_url="$(gh issue create --title "$title" --body-file "$issue_body")"
-fi
+gh_args=(issue create --title "$title" --body-file "$body")
+[[ -n "$repo" ]] && gh_args+=(--repo "$repo")
+issue_url="$(gh "${gh_args[@]}")"
 
-if [[ "$report_truncated" == true ]]; then
-  while IFS= read -r artifact; do
-    comment_body="$(mktemp)"
+# 本文が切れたときだけ、各ホストの解析テキストをコメントで追記
+if [[ "$truncated" == true ]]; then
+  while IFS= read -r f; do
+    cmt="$(mktemp)"
     {
-      printf '## %s: %s\n\n```text\n' "$(basename "$artifact" .txt)" "$(basename "$(dirname "$artifact")")"
-      head -c 58000 "$artifact"
-      if [[ "$(wc -c < "$artifact")" -gt 58000 ]]; then
-        printf '\n... truncated; full output remains below local_log_root.\n'
-      fi
+      printf '## %s: %s\n\n```text\n' "$(basename "$f" .txt)" "$(basename "$(dirname "$f")")"
+      head -c "$max_bytes" "$f"
+      (( $(wc -c <"$f") > max_bytes )) && printf '\n... truncated\n'
       printf '\n```\n'
-    } > "$comment_body"
-    gh issue comment "$issue_url" --body-file "$comment_body"
-    rm -f "$comment_body"
-    unset comment_body
+    } >"$cmt"
+    gh issue comment "$issue_url" --body-file "$cmt"
+    rm -f "$cmt"
+    unset cmt
   done < <(find "$session" -mindepth 2 -maxdepth 2 -type f \
     \( -name 'alp.txt' -o -name 'pt-query-digest.txt' -o -name 'pprof.txt' -o -name 'netdata.txt' \) | sort)
 fi

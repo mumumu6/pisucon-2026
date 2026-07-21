@@ -1,0 +1,16 @@
+---
+# monitor_state: on | off
+# netdata / slow query / pprof をまとめて切り替える
+- name: 計測系を切り替える
+  hosts: all
+  gather_facts: false
+  pre_tasks:
+    - name: monitor_state を検証する
+      ansible.builtin.assert:
+        that: monitor_state in ['on', 'off']
+        fail_msg: "monitor_state must be on or off"
+      run_once: true
+
+  tasks:
+    - name: 計測系を切り替える
+      ansible.builtin.include_tasks: tasks/monitor/toggle.yml

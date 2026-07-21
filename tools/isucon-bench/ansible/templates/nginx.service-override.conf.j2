@@ -1,0 +1,6 @@
+{#
+  nginx.service の drop-in → /etc/systemd/system/nginx.service.d/override.conf
+  中身は LimitNOFILE（ファイルディスクリプタ上限）程度。変数なし。
+#}
+[Service]
+LimitNOFILE=65535

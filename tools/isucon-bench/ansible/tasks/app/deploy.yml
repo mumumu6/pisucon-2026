@@ -1,0 +1,14 @@
+---
+# systemd drop-in → ビルド → 再起動
+- name: アプリのsystemd overrideを配置する
+  ansible.builtin.include_tasks: tasks/app/systemd.yml
+  vars:
+    force_daemon_reload: "{{ force_daemon_reload | default(true) }}"
+
+- name: アプリをビルドする
+  ansible.builtin.include_tasks: tasks/app/build.yml
+
+- name: アプリを再起動する
+  ansible.builtin.include_tasks: tasks/app/restart.yml
+  vars:
+    restart_via: "{{ restart_via | default('systemd') }}"

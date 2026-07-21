@@ -1,0 +1,17 @@
+---
+# restart_via: systemd（既定）| command（restart_command を使う）
+- name: アプリを再起動する（systemd）
+  ansible.builtin.systemd:
+    name: "{{ app_service }}"
+    state: restarted
+  become: true
+  when: (restart_via | default('systemd')) == 'systemd'
+
+- name: アプリを再起動する（restart_command）
+  ansible.builtin.command:
+    argv: [/bin/bash, -lc, "{{ restart_command }}"]
+    chdir: "{{ app_working_dir }}"
+  changed_when: true
+  when:
+    - (restart_via | default('systemd')) == 'command'
+    - restart_command | length > 0

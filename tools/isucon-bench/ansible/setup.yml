@@ -1,219 +1,62 @@
 ---
+# 役割ごとのセットアップを組み立てる薄い playbook。
+# 実体は tasks/{common,app,nginx,db,monitor}/ を参照。
 - name: ISUCON用の計測ツールを導入する
   hosts: all
   become: true
   vars:
-    alp_version: "1.0.21"
     alp_arch_map:
       x86_64: amd64
       aarch64: arm64
+  handlers:
+    - ansible.builtin.import_tasks: handlers/main.yml
   tasks:
     - name: 共通パッケージを導入する
-      ansible.builtin.apt:
-        name:
-          - curl
-          - git
-          - jq
-          - netdata
-        state: present
-        update_cache: true
-        update_cache_retries: 5
-        update_cache_retry_max_delay: 12
-        # Freshly created ISUCON instances may still run cloud-init's apt job.
-        # Wait for its dpkg lock instead of failing the bootstrap.
-        lock_timeout: 600
-      register: common_packages
-      retries: 40
-      delay: 15
-      until: common_packages is succeeded
+      tags: [common, packages]
+      ansible.builtin.include_tasks: tasks/common/packages.yml
 
-    - name: 全ホストへGitHub用SSH鍵を配置する
-      ansible.builtin.include_tasks: tasks/github-ssh.yml
+    - name: GitHub用SSH鍵を配置する
+      tags: [common, github]
+      ansible.builtin.include_tasks: tasks/common/github-ssh.yml
 
-    - name: アプリホストへGoを導入する
-      ansible.builtin.apt:
-        name: golang-go
-        state: present
-        lock_timeout: 600
-      register: go_packages
-      retries: 40
-      delay: 15
-      until: go_packages is succeeded
+    - name: アプリ役割をセットアップする
+      tags: [app]
       when: inventory_hostname in groups['app']
+      block:
+        - name: アプリ用パッケージを導入する
+          tags: [packages]
+          ansible.builtin.include_tasks: tasks/app/packages.yml
+        - name: アプリのsystemd設定を反映する
+          ansible.builtin.include_tasks: tasks/app/systemd.yml
+          vars:
+            force_daemon_reload: true
 
-    - name: Goアプリのsystemd overrideディレクトリを作る
-      ansible.builtin.file:
-        path: "/etc/systemd/system/{{ app_service }}.d"
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-      when: inventory_hostname in groups['app']
-
-    - name: Goアプリのファイルディスクリプタ上限を設定する
-      ansible.builtin.template:
-        src: templates/isucondition.go.service-limit-nofile.conf.j2
-        dest: "/etc/systemd/system/{{ app_service }}.d/limit-nofile.conf"
-        owner: root
-        group: root
-        mode: "0644"
-        backup: true
-      notify: Goアプリのsystemd設定を反映する
-      when: inventory_hostname in groups['app']
-
-    - name: DBホストへMariaDBとpt-query-digestを導入する
-      ansible.builtin.apt:
-        name:
-          - mariadb-server
-          - percona-toolkit
-        state: present
-        lock_timeout: 600
-      register: database_packages
-      retries: 40
-      delay: 15
-      until: database_packages is succeeded
+    - name: DB役割をセットアップする
+      tags: [db]
       when: inventory_hostname in groups['db']
+      block:
+        - name: DB用パッケージを導入する
+          tags: [packages]
+          ansible.builtin.include_tasks: tasks/db/packages.yml
+        - name: MariaDBの設定を反映する
+          tags: [mysql]
+          ansible.builtin.include_tasks: tasks/db/performance.yml
 
-    - name: DBホストのMariaDBを起動・自動起動にする
-      ansible.builtin.systemd:
-        name: mariadb
-        state: started
-        enabled: true
-      when: inventory_hostname in groups['db']
-
-    - name: DBホストへMariaDB性能設定を反映する
-      ansible.builtin.include_tasks: tasks/mysql-performance.yml
-      when: inventory_hostname in groups['db']
-
-    - name: Alp対応アーキテクチャを確認する
-      ansible.builtin.assert:
-        that: ansible_architecture in alp_arch_map
-        fail_msg: "Unsupported alp architecture: {{ ansible_architecture }}"
-
-    - name: NginxホストへAlpを導入する
-      ansible.builtin.unarchive:
-        src: "https://github.com/tkuchiki/alp/releases/download/v{{ alp_version }}/alp_linux_{{ alp_arch_map[ansible_architecture] }}.tar.gz"
-        dest: /usr/local/bin
-        remote_src: true
-        mode: "0755"
+    - name: Nginx役割をセットアップする
+      tags: [nginx]
       when: inventory_hostname in groups['nginx']
+      block:
+        - name: Nginx用パッケージを導入する
+          tags: [packages]
+          ansible.builtin.include_tasks: tasks/nginx/packages.yml
+        - name: Alpを導入する
+          tags: [alp]
+          ansible.builtin.include_tasks: tasks/nginx/alp.yml
+        - name: Nginxの設定を反映する
+          ansible.builtin.include_tasks: tasks/nginx/configure.yml
+          vars:
+            restart_nginx: true
 
-    - name: Nginxホストへ静的配信用パッケージを導入する
-      ansible.builtin.apt:
-        name:
-          - nginx
-        state: present
-        lock_timeout: 600
-      register: nginx_packages
-      retries: 40
-      delay: 15
-      until: nginx_packages is succeeded
-      when: inventory_hostname in groups['nginx']
-
-    - name: Nginxのsystemd overrideディレクトリを作る
-      ansible.builtin.file:
-        path: /etc/systemd/system/nginx.service.d
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-      when: inventory_hostname in groups['nginx']
-
-    - name: Nginxのファイルディスクリプタ上限を設定する
-      ansible.builtin.template:
-        src: templates/nginx.service-limit-nofile.conf.j2
-        dest: /etc/systemd/system/nginx.service.d/limit-nofile.conf
-        owner: root
-        group: root
-        mode: "0644"
-        backup: true
-      notify: Nginxを再起動する
-      when: inventory_hostname in groups['nginx']
-
-    - name: Nginxのworker接続数を設定する
-      ansible.builtin.replace:
-        path: /etc/nginx/nginx.conf
-        regexp: 'worker_connections\s+\d+;'
-        replace: 'worker_connections {{ nginx_worker_connections }};'
-        backup: true
-      notify: Nginxを再起動する
-      when: inventory_hostname in groups['nginx']
-
-    - name: Nginxのworker_rlimit_nofileを設定する
-      ansible.builtin.lineinfile:
-        path: /etc/nginx/nginx.conf
-        regexp: '^\s*worker_rlimit_nofile\s+'
-        line: "worker_rlimit_nofile {{ nginx_limit_nofile }};"
-        insertafter: '^worker_processes'
-        backup: true
-      notify: Nginxを再起動する
-      when: inventory_hostname in groups['nginx']
-
-    - name: Nginxのサイト設定を追加する
-      ansible.builtin.template:
-        src: templates/nginx.isucondition.conf.j2
-        dest: /etc/nginx/conf.d/isucondition.conf
-        owner: root
-        group: root
-        mode: "0644"
-        backup: true
-      notify: Nginxを再起動する
-      when: inventory_hostname in groups['nginx']
-
-    - name: Nginxの既定サイトを無効化する
-      ansible.builtin.file:
-        path: /etc/nginx/sites-enabled/default
-        state: absent
-      notify: Nginxを再起動する
-      when: inventory_hostname in groups['nginx']
-
-    - name: Nginx設定を検証する
-      ansible.builtin.command:
-        argv:
-          - nginx
-          - -t
-      changed_when: false
-      when: inventory_hostname in groups['nginx']
-
-    # inventory の app/nginx/db 所属に合わせて起動・停止する（分割時の余計な同居サービスを止める）
     - name: 役割に合わせてサービスを起動または停止する
-      ansible.builtin.systemd:
-        name: "{{ item.name }}"
-        state: "{{ 'started' if (item.roles | intersect(group_names) | length) > 0 else 'stopped' }}"
-        enabled: "{{ (item.roles | intersect(group_names) | length) > 0 }}"
-      loop: "{{ fleet_services }}"
-      loop_control:
-        label: "{{ item.name }}"
-      failed_when: false
-
-    - name: Netdataを起動・自動起動にする
-      ansible.builtin.systemd:
-        name: "{{ netdata_service }}"
-        state: started
-        enabled: true
-
-    - name: DBホストのスロークエリログを有効にする
-      ansible.builtin.command:
-        argv:
-          - "{{ mysql_admin_command }}"
-          - "--execute=SET GLOBAL long_query_time={{ mysql_slow_query_time }}; SET GLOBAL slow_query_log='ON';"
-      changed_when: true
-      when: inventory_hostname in groups['db']
-
-  handlers:
-    - name: Goアプリのsystemd設定を反映する
-      ansible.builtin.systemd:
-        name: "{{ app_service }}"
-        daemon_reload: true
-        state: restarted
-
-    - name: Nginxを再起動する
-      ansible.builtin.systemd:
-        name: nginx
-        daemon_reload: true
-        state: restarted
-
-    - name: MariaDBを再起動する
-      ansible.builtin.systemd:
-        name: mariadb
-        state: restarted
+      tags: [services]
+      ansible.builtin.include_tasks: tasks/common/fleet-services.yml

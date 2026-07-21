@@ -15,49 +15,49 @@
       - github_ssh_private_key_stat.stat.exists
     fail_msg: >-
       {{ github_ssh_private_key_src }} がありません。
-      isucon-1 など鍵があるホストから次でコピーしてください:
-      scp isucon@<host>:~/.ssh/id_ed25519 {{ github_ssh_private_key_src }}
-      scp isucon@<host>:~/.ssh/id_ed25519.pub {{ github_ssh_public_key_src }}
+      鍵があるホストから次でコピーしてください:
+      scp {{ deploy_user }}@<host>:~/.ssh/id_ed25519 {{ github_ssh_private_key_src }}
+      scp {{ deploy_user }}@<host>:~/.ssh/id_ed25519.pub {{ github_ssh_public_key_src }}
   run_once: true
 
-- name: isuconユーザーの.sshディレクトリを作る
+- name: SSH用ディレクトリを作る
   ansible.builtin.file:
-    path: /home/isucon/.ssh
+    path: "/home/{{ deploy_user }}/.ssh"
     state: directory
-    owner: isucon
-    group: isucon
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
     mode: "0700"
 
 - name: GitHub用秘密鍵を配置する
   ansible.builtin.copy:
     src: "{{ github_ssh_private_key_src }}"
     dest: "{{ github_ssh_identity_file }}"
-    owner: isucon
-    group: isucon
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
     mode: "0600"
 
 - name: GitHub用公開鍵を配置する
   ansible.builtin.copy:
     src: "{{ github_ssh_public_key_src }}"
     dest: "{{ github_ssh_identity_file }}.pub"
-    owner: isucon
-    group: isucon
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
     mode: "0644"
 
 - name: GitHub用SSH configを配置する
   ansible.builtin.template:
     src: templates/ssh-github.config.j2
-    dest: /home/isucon/.ssh/config
-    owner: isucon
-    group: isucon
+    dest: "/home/{{ deploy_user }}/.ssh/config"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
     mode: "0644"
 
 - name: github.comをknown_hostsへ登録する
   ansible.builtin.blockinfile:
-    path: /home/isucon/.ssh/known_hosts
+    path: "/home/{{ deploy_user }}/.ssh/known_hosts"
     create: true
-    owner: isucon
-    group: isucon
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
     mode: "0644"
     marker: "# {mark} ANSIBLE MANAGED github.com"
     block: "{{ github_ssh_known_hosts }}"

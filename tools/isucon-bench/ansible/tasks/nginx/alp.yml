@@ -1,0 +1,12 @@
+---
+- name: Alp対応アーキテクチャを確認する
+  ansible.builtin.assert:
+    that: ansible_architecture in alp_arch_map
+    fail_msg: "Unsupported alp architecture: {{ ansible_architecture }}"
+
+- name: NginxホストへAlpを導入する
+  ansible.builtin.unarchive:
+    src: "https://github.com/tkuchiki/alp/releases/download/v{{ alp_version }}/alp_linux_{{ alp_arch_map[ansible_architecture] }}.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    mode: "0755"

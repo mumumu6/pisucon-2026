@@ -1,0 +1,45 @@
+---
+# always 節: 終了時刻確定 → 役割別解析 → 生ログ削除
+- name: 中断時の計測終了時刻を記録する
+  ansible.builtin.command:
+    argv: [date, +%s]
+  register: fallback_stopped_epoch
+  changed_when: false
+  when: measurement_stopped_epoch is not defined
+
+- name: 有効な計測終了時刻を選ぶ
+  ansible.builtin.set_fact:
+    effective_stopped_epoch: >-
+      {{ measurement_stopped_epoch.stdout
+         if measurement_stopped_epoch is defined
+         else fallback_stopped_epoch.stdout }}
+
+- name: Nginx結果を解析する
+  ansible.builtin.include_tasks: tasks/bench/analyze-nginx.yml
+  when: inventory_hostname in groups['nginx']
+
+- name: DB結果を解析する
+  ansible.builtin.include_tasks: tasks/bench/analyze-db.yml
+  when: inventory_hostname in groups['db']
+
+- name: アプリ結果を解析する
+  ansible.builtin.include_tasks: tasks/bench/analyze-app.yml
+  when: inventory_hostname in groups['app']
+
+- name: Netdata結果を解析する
+  ansible.builtin.include_tasks: tasks/bench/analyze-netdata.yml
+  when: netdata_enabled | bool
+
+- name: 解析後に生ログを削除する
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ session_dir }}/access.log"
+    - "{{ session_dir }}/mysql-slow.log"
+
+- name: 集計後にnetdataの生レスポンスを削除する
+  ansible.builtin.file:
+    path: "{{ session_dir }}/netdata"
+    state: absent
+  when: netdata_enabled | bool

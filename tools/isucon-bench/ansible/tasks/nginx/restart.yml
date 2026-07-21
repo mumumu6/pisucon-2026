@@ -1,0 +1,6 @@
+---
+- name: Nginxを再起動する
+  ansible.builtin.systemd:
+    name: nginx
+    state: restarted
+  become: true

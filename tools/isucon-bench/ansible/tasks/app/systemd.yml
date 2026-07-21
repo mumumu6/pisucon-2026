@@ -1,0 +1,35 @@
+---
+# setup / build から共有。アプリの systemd drop-in を反映する。
+- name: トポロジを解決する
+  ansible.builtin.include_tasks: tasks/common/topology-facts.yml
+
+- name: アプリのsystemd設定を反映する
+  become: true
+  block:
+    - name: override 用ディレクトリを用意する
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ app_service }}.d"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: systemd drop-in を反映する
+      ansible.builtin.template:
+        src: templates/app.service-override.conf.j2
+        dest: "/etc/systemd/system/{{ app_service }}.d/override.conf"
+        owner: root
+        group: root
+        mode: "0644"
+        backup: true
+      register: app_systemd_override
+
+    - name: 旧 drop-in 名があれば片付ける
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ app_service }}.d/limit-nofile.conf"
+        state: absent
+
+    - name: daemon-reload する
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: app_systemd_override is changed or (force_daemon_reload | default(false))

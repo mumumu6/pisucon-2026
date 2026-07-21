@@ -22,67 +22,6 @@
           values in group_vars/all.yml.
 
   tasks:
-    # /home/isucon はホーム直下なので、非空ディレクトリへの初回cloneは失敗する。
-    # 初期イメージで .git が無いホストは init してから同じ同期パスに乗せる。
-    - name: リポジトリの.git有無を確認する
-      ansible.builtin.stat:
-        path: "{{ remote_project_root }}/.git"
-      register: project_git_dir
+    - name: リポジトリを同期する
+      ansible.builtin.include_tasks: tasks/common/git-sync.yml
 
-    - name: .gitが無いホストでリポジトリを初期化する
-      ansible.builtin.shell: |
-        set -euo pipefail
-        git init
-        if git remote get-url origin >/dev/null 2>&1; then
-          git remote set-url origin "{{ git_repository }}"
-        else
-          git remote add origin "{{ git_repository }}"
-        fi
-        git fetch --depth=1 origin "{{ git_version }}"
-        # 初期イメージの webapp/ 等が untracked で残っているので強制上書きする
-        git checkout -f -B "{{ git_version }}" FETCH_HEAD
-      args:
-        chdir: "{{ remote_project_root }}"
-        executable: /bin/bash
-      when: not project_git_dir.stat.exists
-
-    - name: リポジトリを最新化する
-      ansible.builtin.git:
-        repo: "{{ git_repository }}"
-        dest: "{{ remote_project_root }}"
-        version: "{{ git_version }}"
-        update: true
-        # 計測のon/offでpprof.goを生成・削除するため、サーバー側の追跡ファイルに
-        # 差分が残ることがある。make pullはGitHubの指定ブランチを正として同期する。
-        force: true
-        accept_newhostkey: true
-
-    - name: リポジトリのGitユーザー名を確認する
-      ansible.builtin.command:
-        argv: [git, config, --local, --get, user.name]
-        chdir: "{{ remote_project_root }}"
-      register: existing_git_user_name
-      changed_when: false
-      failed_when: existing_git_user_name.rc not in [0, 1]
-
-    - name: リポジトリのGitユーザー名を設定する
-      ansible.builtin.command:
-        argv: [git, config, --local, user.name, "{{ git_user_name }}"]
-        chdir: "{{ remote_project_root }}"
-      changed_when: true
-      when: existing_git_user_name.stdout != git_user_name
-
-    - name: リポジトリのGitメールアドレスを確認する
-      ansible.builtin.command:
-        argv: [git, config, --local, --get, user.email]
-        chdir: "{{ remote_project_root }}"
-      register: existing_git_user_email
-      changed_when: false
-      failed_when: existing_git_user_email.rc not in [0, 1]
-
-    - name: リポジトリのGitメールアドレスを設定する
-      ansible.builtin.command:
-        argv: [git, config, --local, user.email, "{{ git_user_email }}"]
-        chdir: "{{ remote_project_root }}"
-      changed_when: true
-      when: existing_git_user_email.stdout != git_user_email

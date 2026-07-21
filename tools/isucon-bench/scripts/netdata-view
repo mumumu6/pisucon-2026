@@ -1,90 +1,81 @@
 #!/usr/bin/env bash
+# サーバーの netdata (localhost:19999) を SSH トンネルで手元に出す。
+# 使い方:
+#   netdata-view              # reporter（無指定時）
+#   netdata-view isucon-2     # 特定ホスト
+#   netdata-view all          # 全ホスト（ポートをずらして同時）
 set -Eeuo pipefail
 
-# 使い方:
-#   make netdata-view                  # reporter (または LOCAL_PORT=19999)
-#   make netdata-view HOST=isucon-2    # ホストごとにローカルポートをずらす
-#   make netdata-view HOST=all         # 全ホストを同時にトンネル
-#
-# Grafanaは不要。ブラウザで localhost:19999 / :20000 を並べて見る。
-
-tool_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-inventory="${ANSIBLE_INVENTORY:-$tool_root/ansible/inventory.yml}"
-requested_host="${1:-}"
+tool="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+inventory="${ANSIBLE_INVENTORY:-$tool/ansible/inventory.yml}"
+host_arg="${1:-}"
 base_port="${NETDATA_LOCAL_BASE_PORT:-19999}"
 
-command -v ansible-inventory >/dev/null || { echo "ansible-inventory is required" >&2; exit 1; }
-command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
+need() { command -v "$1" >/dev/null || { echo "$1 is required" >&2; exit 1; }; }
+need ansible-inventory
+need jq
 
-inventory_json="$(ansible-inventory --inventory "$inventory" --list)"
-mapfile -t all_hosts < <(jq -r '._meta.hostvars | keys[]' <<< "$inventory_json" | sort)
+inv_json="$(ansible-inventory -i "$inventory" --list)"
+mapfile -t hosts < <(jq -r '._meta.hostvars | keys[]' <<<"$inv_json" | sort)
 
-local_port_for() {
-  local host="$1"
-  local i
-  for i in "${!all_hosts[@]}"; do
-    if [[ "${all_hosts[$i]}" == "$host" ]]; then
-      echo $((base_port + i))
-      return
-    fi
+# inventory 順で localhost ポートを割り当て（isucon-1 → 19999, 次 → 20000 …）
+port_for() {
+  local h="$1" i
+  for i in "${!hosts[@]}"; do
+    [[ "${hosts[$i]}" == "$h" ]] && { echo $((base_port + i)); return; }
   done
-  echo "unknown inventory host: $host" >&2
+  echo "unknown host: $h" >&2
   return 1
 }
 
-tunnel_one() {
-  local host="$1"
-  local foreground="${2:-1}"
-  local connection address user ssh_port local_port
-  local -a ssh_args
+# 1ホスト分のトンネル。foreground=1 ならこのプロセスを ssh に置き換える
+tunnel() {
+  local h="$1" fg="${2:-1}"
+  local hv addr user sport lport
+  local -a args
 
-  connection="$(jq -er --arg host "$host" '._meta.hostvars[$host]' <<< "$inventory_json")" || {
-    echo "unknown inventory host: $host" >&2
-    return 1
-  }
-  address="$(jq -r --arg host "$host" '.ansible_host // $host' <<< "$connection")"
-  user="$(jq -r '.ansible_user // "isucon"' <<< "$connection")"
-  ssh_port="$(jq -r '.ansible_port // empty' <<< "$connection")"
-  local_port="$(local_port_for "$host")"
+  hv="$(jq -ec --arg h "$h" '._meta.hostvars[$h]' <<<"$inv_json")" \
+    || { echo "unknown host: $h" >&2; return 1; }
+  addr="$(jq -r --arg h "$h" '.ansible_host // $h' <<<"$hv")"
+  user="$(jq -r '.ansible_user // "isucon"' <<<"$hv")"
+  sport="$(jq -r '.ansible_port // empty' <<<"$hv")"
+  lport="$(port_for "$h")"
 
-  if ss -ltn 2>/dev/null | grep -qE ":${local_port}\\s"; then
-    echo "Netdata already tunneled: http://localhost:$local_port ($host)"
+  if ss -ltn 2>/dev/null | grep -qE ":${lport}\\s"; then
+    echo "already: http://localhost:$lport ($h)"
     return 0
   fi
 
-  ssh_args=(-o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -N -L "${local_port}:127.0.0.1:19999")
-  [[ -z "$ssh_port" ]] || ssh_args+=(-p "$ssh_port")
+  args=(-o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -N -L "${lport}:127.0.0.1:19999")
+  [[ -n "$sport" ]] && args+=(-p "$sport")
 
-  echo "Netdata: http://localhost:$local_port ($host)"
-  if [[ "$foreground" == "1" ]]; then
-    exec ssh "${ssh_args[@]}" "$user@$address"
+  echo "Netdata: http://localhost:$lport ($h)"
+  if [[ "$fg" == 1 ]]; then
+    exec ssh "${args[@]}" "$user@$addr"
   fi
-  ssh "${ssh_args[@]}" "$user@$address" &
-  echo "  pid $! (stop: kill $!)"
+  ssh "${args[@]}" "$user@$addr" &
+  echo "  pid $!  (止める: kill $!)"
 }
 
-if [[ "$requested_host" == "all" ]]; then
-  [[ ${#all_hosts[@]} -gt 0 ]] || { echo "no hosts in inventory" >&2; exit 1; }
-  echo "Opening Netdata tunnels for all hosts (Ctrl+C stops this waiter; tunnels keep running in background)."
-  for host in "${all_hosts[@]}"; do
-    tunnel_one "$host" 0
-  done
+# --- エントリ ---
+if [[ "$host_arg" == all ]]; then
+  [[ ${#hosts[@]} -gt 0 ]] || { echo "inventory にホストがありません" >&2; exit 1; }
+  for h in "${hosts[@]}"; do tunnel "$h" 0; done
   echo
-  echo "Open in browser:"
-  for host in "${all_hosts[@]}"; do
-    echo "  http://localhost:$(local_port_for "$host")  # $host"
-  done
+  echo "ブラウザ:"
+  for h in "${hosts[@]}"; do echo "  http://localhost:$(port_for "$h")  # $h"; done
   wait
   exit 0
 fi
 
-if [[ -z "$requested_host" ]]; then
+# 引数なし: 既にトンネル済みならそれで終了、なければ reporter へ
+if [[ -z "$host_arg" ]]; then
   if curl -fsS --max-time 1 "http://127.0.0.1:${base_port}/api/v1/info" >/dev/null 2>&1; then
-    echo "Netdata is already available: http://localhost:${base_port}"
+    echo "already: http://localhost:${base_port}"
     exit 0
   fi
-  requested_host="$(jq -r '.reporter.hosts[0] // empty' <<< "$inventory_json")"
+  host_arg="$(jq -r '.reporter.hosts[0] // empty' <<<"$inv_json")"
 fi
 
-[[ -n "$requested_host" ]] || { echo "HOST is required because reporter is not configured" >&2; exit 1; }
-tunnel_one "$requested_host" 1
+[[ -n "$host_arg" ]] || { echo "HOST を指定してください（reporter 未設定）" >&2; exit 1; }
+tunnel "$host_arg" 1

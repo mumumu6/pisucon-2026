@@ -1,0 +1,81 @@
+---
+# ベンチ開始前: DB/nginx/app 再起動、ログ初期化、slow query ON、netdata 起動
+- name: ベンチ前にMariaDBを再起動する
+  ansible.builtin.include_tasks: tasks/db/restart.yml
+  when: inventory_hostname in groups['db']
+
+- name: デプロイ済みのGitリビジョンを取得する
+  ansible.builtin.command:
+    argv: [git, rev-parse, HEAD]
+    chdir: "{{ remote_project_root }}"
+  register: deployed_revision
+  changed_when: false
+  failed_when: false
+  when: inventory_hostname in groups['reporter']
+
+- name: Gitリビジョンを保存する
+  ansible.builtin.copy:
+    content: "{{ deployed_revision.stdout | default('unknown', true) }}\n"
+    dest: "{{ session_dir }}/git-revision.txt"
+    mode: "0644"
+  when: inventory_hostname in groups['reporter']
+
+- name: アプリをビルドして再起動する
+  when: inventory_hostname in groups['app']
+  block:
+    - name: アプリをビルドする
+      ansible.builtin.include_tasks: tasks/app/build.yml
+    - name: アプリを再起動する
+      ansible.builtin.include_tasks: tasks/app/restart.yml
+      vars:
+        restart_via: command
+
+- name: ベンチ前にNginxを再起動する
+  ansible.builtin.include_tasks: tasks/nginx/restart.yml
+  when: inventory_hostname in groups['nginx']
+
+- name: 計測中のnetdataを起動する
+  ansible.builtin.systemd:
+    name: "{{ netdata_service }}"
+    state: started
+    enabled: true
+  become: true
+  when: netdata_enabled | bool
+
+- name: Nginxのaccess logを確認する
+  ansible.builtin.stat:
+    path: "{{ access_log }}"
+  register: access_log_stat
+  become: true
+  when: inventory_hostname in groups['nginx']
+
+- name: ベンチ前にnginxのaccess logを空にする
+  ansible.builtin.command:
+    argv: [truncate, -s, "0", "{{ access_log }}"]
+  become: true
+  changed_when: true
+  when:
+    - inventory_hostname in groups['nginx']
+    - access_log_stat.stat.exists | default(false)
+
+- name: MariaDBのスロークエリログを確認する
+  ansible.builtin.stat:
+    path: "{{ slow_log }}"
+  register: slow_log_stat
+  become: true
+  when: inventory_hostname in groups['db']
+
+- name: ベンチ前にMariaDBのスロークエリログを空にする
+  ansible.builtin.command:
+    argv: [truncate, -s, "0", "{{ slow_log }}"]
+  become: true
+  changed_when: true
+  when:
+    - inventory_hostname in groups['db']
+    - slow_log_stat.stat.exists | default(false)
+
+- name: MariaDBのスロークエリログを有効にする
+  ansible.builtin.include_tasks: tasks/db/slow-query.yml
+  vars:
+    slow_query_state: on
+  when: inventory_hostname in groups['db']

@@ -1,0 +1,66 @@
+---
+# pprof 武装 → ブラウザベンチ待ち → スコア保存
+- name: 計測開始時刻を記録する
+  ansible.builtin.command:
+    argv: [date, +%s]
+  register: benchmark_started_epoch
+  changed_when: false
+
+- name: アプリホストでCPUプロファイル取得を開始する
+  ansible.builtin.command:
+    argv:
+      - go
+      - tool
+      - pprof
+      - -proto
+      - -output
+      - "{{ session_dir }}/cpu.pprof"
+      - "-seconds={{ pprof_seconds }}"
+      - "{{ pprof_url }}"
+  async: "{{ (pprof_seconds | int) + 120 }}"
+  poll: 0
+  register: pprof_job
+  changed_when: true
+  when:
+    - inventory_hostname in groups['app']
+    - pprof_url | length > 0
+
+- name: ブラウザでベンチを開始するよう案内する
+  ansible.builtin.debug:
+    msg: "計測を開始しました。ブラウザでベンチを開始してください。"
+  when: inventory_hostname == groups['reporter'][0]
+
+- name: ブラウザベンチの終了とスコア入力を待つ
+  ansible.builtin.pause:
+    prompt: >-
+      ブラウザのベンチが終了したら表示されたスコアを入力してください。
+      不明な場合はEnterだけを押してください。
+  register: browser_benchmark_result
+  when: inventory_hostname == groups['reporter'][0]
+
+- name: ベンチスコアを保存する
+  ansible.builtin.copy:
+    content: >-
+      {{ hostvars[groups['reporter'][0]].browser_benchmark_result.user_input
+         | default('unknown', true) }}
+    dest: "{{ session_dir }}/score.txt"
+    mode: "0644"
+  when: inventory_hostname == groups['reporter'][0]
+
+- name: 計測終了時刻を記録する
+  ansible.builtin.command:
+    argv: [date, +%s]
+  register: measurement_stopped_epoch
+  changed_when: false
+
+- name: CPUプロファイル取得の完了を待つ
+  ansible.builtin.async_status:
+    jid: "{{ pprof_job.ansible_job_id }}"
+  register: pprof_result
+  until: pprof_result.finished
+  retries: "{{ (((pprof_seconds | int) + 120) / 5) | round(0, 'ceil') | int }}"
+  delay: 5
+  failed_when: false
+  when:
+    - inventory_hostname in groups['app']
+    - pprof_url | length > 0

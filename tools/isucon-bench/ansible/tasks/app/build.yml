@@ -1,0 +1,8 @@
+---
+# build_command でアプリをビルドする（app_working_dir で実行）
+- name: アプリをビルドする
+  ansible.builtin.command:
+    argv: [/bin/bash, -lc, "{{ build_command }}"]
+    chdir: "{{ app_working_dir }}"
+  changed_when: true
+  when: build_command | length > 0

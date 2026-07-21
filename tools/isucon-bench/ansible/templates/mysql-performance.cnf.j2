@@ -1,29 +1,41 @@
-# Ansibleで管理: tools/isucon-bench/ansible/group_vars/all.yml
-# OSまたは電源の異常終了時、直近およそ1秒分の書き込みが失われる可能性があります。
-#
+{#
+  MariaDB 性能設定 → mysql_performance_cnf（例: /etc/mysql/mariadb.conf.d/99-isucon-performance.cnf）
+  数値をいじるときはこのファイルを直接直して make mysql-tune。
+
+  Jinja 変数（group_vars/all.yml）:
+    slow_log … スロークエリログのファイルパス（bench の truncate / pt-query-digest も同じパスを使う）
+#}
+# OS/電源断時、直近およそ1秒分の更新が失われる可能性がある（flush_log_at_trx_commit=2）。
 # bind-address は 50-server.cnf の 127.0.0.1 を上書きする（ファイル名 99- で後勝ち）。
-# これがないと他ホストのアプリから 3306 に繋がらない。
+
 [mysqld]
-bind-address = {{ mysql_bind_address }}
-# 未設定だと datadir 直下に巨大なスローログが溜まり、pt-query-digest が終わらなくなる
+# 常に全インターフェースで待受（分離構成でも手を入れなくてよい。1台でも害は少ない）
+bind-address = 0.0.0.0
 slow_query_log = 1
+# slow_log: スローログの出力先（group_vars と一致させる）
 slow_query_log_file = {{ slow_log }}
-long_query_time = {{ mysql_slow_query_time }}
+# 0 ならほぼ全クエリを slow log へ（計測用。最終計測前は monitor off で止める）
+long_query_time = 0
 log_output = FILE
 
 [mariadb]
-innodb_flush_log_at_trx_commit = {{ mysql_innodb_flush_log_at_trx_commit }}
-{% if mysql_skip_log_bin | default(false) %}
+# COMMIT 時の redo fsync 頻度。2=約1秒ごと（速いが耐久性↓）
+innodb_flush_log_at_trx_commit = 2
+# レプリカ無し想定でバイナリログを切る（I/O 削減）
 skip-log-bin
-{% else %}
-sync_binlog = {{ mysql_sync_binlog }}
-{% endif %}
 
-innodb_buffer_pool_size = {{ mysql_innodb_buffer_pool_size }}
-innodb_buffer_pool_instances = {{ mysql_innodb_buffer_pool_instances }}
-innodb_log_buffer_size = {{ mysql_innodb_log_buffer_size }}
-innodb_log_file_size = {{ mysql_innodb_log_file_size }}
-innodb_flush_method = {{ mysql_innodb_flush_method }}
-innodb_io_capacity = {{ mysql_innodb_io_capacity }}
-innodb_io_capacity_max = {{ mysql_innodb_io_capacity_max }}
-max_connections = {{ mysql_max_connections }}
+# InnoDB のメインキャッシュ。DB 専用機のメモリに合わせて調整
+innodb_buffer_pool_size = 2G
+# buffer pool の分割数（目安: だいたい 1 インスタンス ≒ 1GB）
+innodb_buffer_pool_instances = 2
+# redo を書く前のメモリバッファ
+innodb_log_buffer_size = 64M
+# redo ログファイルサイズ。大きいほど checkpoint 頻度↓（再起動時に反映）
+innodb_log_file_size = 512M
+# OS ページキャッシュとの二重化を避ける
+innodb_flush_method = O_DIRECT
+# dirty page 書き出しペース（NVMe なら高め）
+innodb_io_capacity = 2000
+innodb_io_capacity_max = 4000
+# 最大同時接続数
+max_connections = 1000

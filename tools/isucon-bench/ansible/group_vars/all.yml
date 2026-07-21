@@ -1,48 +1,52 @@
 ---
-# 全管理対象ホストで共有する非秘密設定。制御用リポジトリを新規cloneした場合も同じ構成を再現できるよう、Git管理します。
+# =============================================================================
+# 大会ごとに書き換える設定（別回の ISUCON では主にここを変える）
+# nginx の location / gzip、MariaDB の数値などは templates/ を直接編集する
+# =============================================================================
 
-remote_project_root: /home/isucon
-remote_log_root: /home/isucon/log
-app_working_dir: /home/isucon/webapp/go
-frontend_public_dir: /home/isucon/webapp/public
-nginx_listen_port: 80
-nginx_app_port: 3000
-nginx_worker_connections: 65535
-nginx_limit_nofile: 65535
-nginx_client_body_buffer_size: 256k
-nginx_upstream_keepalive: 256
-# app と nginx が同一ホストなら 127.0.0.1。分離構成なら app のプライベートIPへ。
-nginx_app_backend_host: 127.0.0.1
-# 同一ホストなら unix socket（空文字で TCP に戻せる）
-nginx_app_unix_socket: /run/isucondition/isucondition.sock
-app_unix_socket: /run/isucondition/isucondition.sock
+# アプリの識別名。サービス名・socket・nginx conf 名などの組み立て元。
+app_name: isucondition
 
+deploy_user: isucon
+ansible_user: isucon
+remote_project_root: /home/{{ deploy_user }}
+remote_log_root: "{{ remote_project_root }}/log"
+app_working_dir: "{{ remote_project_root }}/webapp/go"
+frontend_public_dir: "{{ remote_project_root }}/webapp/public"
+
+# --- Git / GitHub Issue ---
 git_repository: git@github.com:mumumu6/pisucon-2026.git
 git_version: main
 git_user_name: mumumu6
 git_user_email: takumu.sato@gmail.com
+github_repository: mumumu6/pisucon-2026
+create_github_issue: true
 
-# GitHub用デプロイ鍵（秘密鍵はGit管理しない。files/ は .gitignore 済み）
-github_ssh_private_key_src: "{{ playbook_dir }}/files/github_id_ed25519"
-github_ssh_public_key_src: "{{ playbook_dir }}/files/github_id_ed25519.pub"
-github_ssh_identity_file: /home/isucon/.ssh/id_ed25519
-# ssh-keyscan -t rsa,ecdsa,ed25519 github.com
-github_ssh_known_hosts: |
-  github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
-  github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
-  github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
+# --- アプリ ---
+build_command: "go build -o {{ app_name }} ."
+restart_command: "sudo systemctl restart {{ app_service }}"
+app_service: "{{ app_name }}.go.service"
+app_runtime_directory: "{{ app_name }}"
+app_unix_socket: "/run/{{ app_name }}/{{ app_name }}.sock"
+# nginx と app が別ホストのときアプリが待つ TCP ポート（main.go の SERVER_APP_PORT）
+app_listen_port: 3000
 
-# アプリ固有の操作。
-build_command: go build -o isucondition .
-restart_command: sudo systemctl restart isucondition.go.service
-app_service: isucondition.go.service
-app_limit_nofile: 65535
-# 既定GOGC=100。heapに余裕があるのでGC頻度を下げてGETのテールを稼ぐ。
-app_gogc: 400
-app_gomemlimit: 2GiB
+# --- Nginx（細かい中身は templates/nginx.site.conf.j2。upstream 先は inventory から自動）---
+nginx_conf_dest: "/etc/nginx/conf.d/{{ app_name }}.conf"
 
-# inventory のグループ所属で「そのホストで動かすサービス」を決める。
-# 1台構成なら全グループに同じホストを入れれば全部起動、分割なら所属分だけ起動。
+# --- pprof ---
+pprof_filename: pprof.go
+local_pprof_relative: webapp/go/pprof.go
+pprof_url: http://127.0.0.1:6060/debug/pprof/profile
+pprof_seconds: 75
+pprof_view_port: 6070
+
+# =============================================================================
+# 計測・DB・共通（パスやサービス名など。数値チューニングは templates/ 側）
+# =============================================================================
+
+local_log_root: "{{ playbook_dir }}/../../../log"
+
 fleet_services:
   - name: "{{ app_service }}"
     roles: [app]
@@ -51,62 +55,34 @@ fleet_services:
   - name: "{{ mysql_service }}"
     roles: [db]
 
+# GitHub 用 SSH 鍵（デプロイ鍵）。チームで1組あればよい。files/ は gitignore 済み。
+github_ssh_private_key_src: "{{ playbook_dir }}/files/github_id_ed25519"
+github_ssh_public_key_src: "{{ playbook_dir }}/files/github_id_ed25519.pub"
+github_ssh_identity_file: "/home/{{ deploy_user }}/.ssh/id_ed25519"
+github_ssh_known_hosts: |
+  github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+  github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
+  github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
 
-# ログと解析ツール。
+alp_version: "1.0.21"
 access_log: /var/log/nginx/access.log
 access_log_format: ltsv
 alp_options: []
+
 mysql_admin_command: mysql
 mysql_service: mariadb
 mysql_slow_query_time: 0
 slow_log: /var/log/mysql/mariadb-slow.log
-# --- MariaDB性能設定 (make mysql-tune で反映、再起動あり) ---
-# DB専用 (isucon-2, メモリ約3.6GB・NVMe) 向け。
-#
-# COMMIT時にredoログを毎回fsyncしない(2)。耐久性より速度優先。
-# OS/電源断時は直近およそ1秒分の更新が失われる可能性がある。
-mysql_innodb_flush_log_at_trx_commit: 2
-# バイナリログ自体を切る（レプリカ無し）。I/OとCPUをINSERTから外す。
-mysql_skip_log_bin: true
-# skip-log-bin 時は無視されるが、残しておく。
-mysql_sync_binlog: 0
-# InnoDBがデータ/インデックスを載せるメインキャッシュ。
-# DB専用化したので 2G まで引き上げる。
-mysql_innodb_buffer_pool_size: 2G
-# buffer pool の分割数。内部ロック競合を分散する用途。
-# 目安はだいたい1インスタンス≒1GB。
-mysql_innodb_buffer_pool_instances: 2
-# トランザクションのredoを書く前のメモリバッファ。
-# 大きなバッチINSERTで、ログを頻繁にディスクへ押し出す回数を減らす。
-mysql_innodb_log_buffer_size: 64M
-# redoログファイルサイズ。大きいほどcheckpoint頻度が下がる（再起動時に反映）。
-mysql_innodb_log_file_size: 512M
-# InnoDBのデータファイルI/OをOSページキャッシュ経由にしない。
-# buffer pool を大きくしたときの二重キャッシュを避ける。
-mysql_innodb_flush_method: O_DIRECT
-# 背景のdirty page書き出しペースの目安(通常時)。
-# デフォルト200はHDD寄り。NVMeなら高めにして書き込み滞留を減らす。
-mysql_innodb_io_capacity: 2000
-# 上記の上限。負荷が高いときにどこまで書き出せるか。
-mysql_innodb_io_capacity_max: 4000
-# 他ホストのアプリから繋ぐため 0.0.0.0 で待受。接続先自体はリポジトリの env.sh。
-mysql_bind_address: "0.0.0.0"
-mysql_max_connections: 1000
-# cnf では書けない権限。isucon@localhost だけではリモート接続できない。
-mysql_remote_grant_sql: >-
-  CREATE USER IF NOT EXISTS 'isucon'@'%' IDENTIFIED BY 'isucon';
-  GRANT ALL PRIVILEGES ON *.* TO 'isucon'@'%' WITH GRANT OPTION;
-  FLUSH PRIVILEGES;
-# BLOBを含む実SQLは出力せず、集計表だけをレポートへ残す。
+mysql_performance_cnf: /etc/mysql/mariadb.conf.d/99-isucon-performance.cnf
+# DB 接続（リモート GRANT 用。env.sh の MYSQL_HOST は Ansible では触らない）
+mysql_port: 3306
+mysql_user: isucon
+mysql_dbname: "{{ app_name }}"
+mysql_password: isucon
+# リモート GRANT は tasks/db/performance.yml が mysql_user / mysql_password から自動生成
 pt_query_digest_timeout_seconds: 180
-# 空ならフルレポート（Query例つき）。重いときだけ --report-format profile を足す。
 pt_query_digest_options: []
 
-# Goプロファイリング。待受先はlocalhostに限定します。
-pprof_url: http://127.0.0.1:6060/debug/pprof/profile
-pprof_seconds: 75
-
-# ホストメトリクス。
 netdata_enabled: true
 netdata_service: netdata
 netdata_url: http://127.0.0.1:19999
@@ -115,7 +91,3 @@ netdata_charts:
   - system.ram
   - system.load
   - system.io
-
-github_repository: mumumu6/pisucon-2026
-create_github_issue: true
-fleet_auto_publish: false
