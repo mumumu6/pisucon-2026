@@ -1,46 +1,42 @@
 #!/usr/bin/env bash
+# 手元の cpu.pprof を go tool pprof の Web UI で開く。
+# 使い方: serve-pprof [SESSION_ID]
+#   省略時は log/ 配下の最新 cpu.pprof
 set -Eeuo pipefail
 
-repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-vars_file="$repository_root/tools/isucon-bench/ansible/group_vars/all.yml"
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+vars="$root/tools/isucon-bench/ansible/group_vars/all.yml"
 session="${1:-}"
-search_dir="$repository_root/log${session:+/$session}"
-pid_file="$repository_root/log/.pprof-view.pid"
-output_file="$repository_root/log/.pprof-view.log"
-view_port="${PPROF_VIEW_PORT:-6070}"
+dir="$root/log${session:+/$session}"
+port="${PPROF_VIEW_PORT:-6070}"
+log="$root/log/.pprof-view.log"
+pidf="$root/log/.pprof-view.pid"
 
-if [[ -f "$vars_file" ]]; then
-  extracted="$(sed -nE 's/^pprof_view_port:[[:space:]]*([0-9]+).*/\1/p' "$vars_file" | head -1)"
-  [[ -n "$extracted" ]] && view_port="$extracted"
+# group_vars に pprof_view_port があればそれを使う
+if [[ -f "$vars" ]]; then
+  v="$(sed -nE 's/^pprof_view_port:[[:space:]]*([0-9]+).*/\1/p' "$vars" | head -1)"
+  [[ -n "$v" ]] && port="$v"
 fi
 
-test -d "$search_dir" || {
-  echo "profile directory not found: $search_dir" >&2
-  exit 1
-}
+[[ -d "$dir" ]] || { echo "ディレクトリがありません: $dir" >&2; exit 1; }
+profile="$(find "$dir" -type f -name cpu.pprof -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
+[[ -n "$profile" ]] || { echo "cpu.pprof が見つかりません: $dir" >&2; exit 1; }
 
-profile="$(find "$search_dir" -type f -name cpu.pprof -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
-test -n "$profile" || {
-  echo "cpu.pprof not found below $search_dir" >&2
-  exit 1
-}
+# 同じポートの古いビューアだけ止める
+pkill -f "pprof -http=:${port}" 2>/dev/null || true
 
-# Stop only a pprof viewer previously started for this port.
-old_pids="$(pgrep -f "pprof -http=:${view_port}" || true)"
-if [[ -n "$old_pids" ]]; then
-  kill $old_pids 2>/dev/null || true
-fi
+mkdir -p "$root/log"
+setsid go tool pprof -http=":${port}" -no_browser "$profile" >"$log" 2>&1 </dev/null &
+echo $! >"$pidf"
 
-setsid go tool pprof -http=":${view_port}" -no_browser "$profile" >"$output_file" 2>&1 < /dev/null &
-echo $! >"$pid_file"
-
+# 起動待ち（最大約2秒）
 for _ in {1..20}; do
-  if ss -ltn 2>/dev/null | grep -qE "127\\.0\\.0\\.1:${view_port}|\\[::1\\]:${view_port}|\\*:${view_port}"; then
-    echo "Updated http://localhost:${view_port} with $profile"
+  if ss -ltn 2>/dev/null | grep -qE "127\\.0\\.0\\.1:${port}|\\[::1\\]:${port}|\\*:${port}"; then
+    echo "http://localhost:${port}  ← $profile"
     exit 0
   fi
   sleep 0.1
 done
 
-echo "pprof viewer did not start; see $output_file" >&2
+echo "起動に失敗しました。ログ: $log" >&2
 exit 1

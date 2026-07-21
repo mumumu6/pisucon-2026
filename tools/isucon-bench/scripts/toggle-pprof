@@ -1,34 +1,41 @@
 #!/usr/bin/env bash
+# 手元リポジトリの pprof.go を on/off し、そのファイルだけ commit & push する。
+# 使い方: toggle-pprof on|off
 set -Eeuo pipefail
 
-repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-template="$repository_root/tools/isucon-bench/ansible/templates/pprof.go.j2"
-vars_file="$repository_root/tools/isucon-bench/ansible/group_vars/all.yml"
-relative_target="webapp/go/pprof.go"
-pprof_listen="127.0.0.1:6060"
-if [[ -f "$vars_file" ]]; then
-  extracted_path="$(sed -nE 's/^local_pprof_relative:[[:space:]]*([^#[:space:]]+).*/\1/p' "$vars_file" | head -1)"
-  [[ -n "$extracted_path" ]] && relative_target="$extracted_path"
-  extracted="$(sed -nE 's/^pprof_listen:[[:space:]]*"([^"]+)".*/\1/p' "$vars_file" | head -1)"
-  [[ -n "$extracted" ]] && pprof_listen="$extracted"
-fi
-target="$repository_root/$relative_target"
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+vars="$root/tools/isucon-bench/ansible/group_vars/all.yml"
+template="$root/tools/isucon-bench/ansible/templates/pprof.go.j2"
+rel="webapp/go/pprof.go"
+listen="127.0.0.1:6060"
 state="${1:-}"
 
-render_pprof() {
-  sed "s/{{ pprof_listen }}/${pprof_listen//\//\\/}/g" "$template"
+# group_vars から単純なスカラーを1つ読む（無ければ既定値のまま）
+yaml_get() {
+  local key="$1" re="$2"
+  [[ -f "$vars" ]] || return 0
+  local v
+  v="$(sed -nE "s/^${key}:[[:space:]]*${re}.*/\\1/p" "$vars" | head -1)"
+  [[ -n "$v" ]] && printf '%s\n' "$v"
 }
+
+rel="$(yaml_get local_pprof_relative '([^#[:space:]]+)' || true)"
+rel="${rel:-webapp/go/pprof.go}"
+listen="$(yaml_get pprof_listen '"([^"]+)"' || true)"
+listen="${listen:-127.0.0.1:6060}"
+target="$root/$rel"
 
 case "$state" in
   on)
     mkdir -p "$(dirname "$target")"
-    render_pprof >"$target"
+    # テンプレの {{ pprof_listen }} だけ埋めて配置
+    sed "s/{{ pprof_listen }}/${listen//\//\\/}/g" "$template" >"$target"
     chmod 0644 "$target"
-    commit_message="chore: enable pprof"
+    msg="chore: enable pprof"
     ;;
   off)
     rm -f "$target"
-    commit_message="chore: disable pprof"
+    msg="chore: disable pprof"
     ;;
   *)
     echo "usage: $0 on|off" >&2
@@ -36,15 +43,12 @@ case "$state" in
     ;;
 esac
 
-if [ -e "$target" ] || git -C "$repository_root" ls-files --error-unmatch -- "$relative_target" >/dev/null 2>&1; then
-  git -C "$repository_root" add --all -- "$relative_target"
-  if ! git -C "$repository_root" diff --cached --quiet -- "$relative_target"; then
-    git -C "$repository_root" commit --only -m "$commit_message" -- "$relative_target"
-    branch="$(git -C "$repository_root" branch --show-current)"
-    if [ -z "$branch" ]; then
-      echo "現在のGitブランチを取得できません" >&2
-      exit 1
-    fi
-    git -C "$repository_root" push origin "$branch"
-  fi
-fi
+# 差分がなければ何もしない（既に tracked / 存在するときだけ git 操作）
+git -C "$root" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1 || [[ -e "$target" ]] || exit 0
+git -C "$root" add --all -- "$rel"
+git -C "$root" diff --cached --quiet -- "$rel" && exit 0
+
+branch="$(git -C "$root" branch --show-current)"
+[[ -n "$branch" ]] || { echo "現在のブランチを取得できません" >&2; exit 1; }
+git -C "$root" commit --only -m "$msg" -- "$rel"
+git -C "$root" push origin "$branch"
