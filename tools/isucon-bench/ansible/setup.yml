@@ -3,12 +3,12 @@
   hosts: all
   become: true
   vars:
-    alp_version: "1.0.21"
     alp_arch_map:
       x86_64: amd64
       aarch64: arm64
   tasks:
     - name: 共通パッケージを導入する
+      tags: [common, packages]
       ansible.builtin.apt:
         name:
           - curl
@@ -20,7 +20,6 @@
         update_cache_retries: 5
         update_cache_retry_max_delay: 12
         # Freshly created ISUCON instances may still run cloud-init's apt job.
-        # Wait for its dpkg lock instead of failing the bootstrap.
         lock_timeout: 600
       register: common_packages
       retries: 40
@@ -28,9 +27,11 @@
       until: common_packages is succeeded
 
     - name: 全ホストへGitHub用SSH鍵を配置する
+      tags: [common, github]
       ansible.builtin.include_tasks: tasks/github-ssh.yml
 
     - name: アプリホストへGoを導入する
+      tags: [app, packages]
       ansible.builtin.apt:
         name: golang-go
         state: present
@@ -41,27 +42,15 @@
       until: go_packages is succeeded
       when: inventory_hostname in groups['app']
 
-    - name: Goアプリのsystemd overrideディレクトリを作る
-      ansible.builtin.file:
-        path: "/etc/systemd/system/{{ app_service }}.d"
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-      when: inventory_hostname in groups['app']
-
-    - name: Goアプリのファイルディスクリプタ上限を設定する
-      ansible.builtin.template:
-        src: templates/isucondition.go.service-limit-nofile.conf.j2
-        dest: "/etc/systemd/system/{{ app_service }}.d/limit-nofile.conf"
-        owner: root
-        group: root
-        mode: "0644"
-        backup: true
-      notify: Goアプリのsystemd設定を反映する
+    - name: アプリのsystemd overrideを配置する
+      tags: [app]
+      ansible.builtin.include_tasks: tasks/app-systemd.yml
+      vars:
+        force_daemon_reload: true
       when: inventory_hostname in groups['app']
 
     - name: DBホストへMariaDBとpt-query-digestを導入する
+      tags: [db, packages]
       ansible.builtin.apt:
         name:
           - mariadb-server
@@ -75,22 +64,27 @@
       when: inventory_hostname in groups['db']
 
     - name: DBホストのMariaDBを起動・自動起動にする
+      tags: [db]
       ansible.builtin.systemd:
-        name: mariadb
+        name: "{{ mysql_service }}"
         state: started
         enabled: true
       when: inventory_hostname in groups['db']
 
     - name: DBホストへMariaDB性能設定を反映する
+      tags: [db, mysql]
       ansible.builtin.include_tasks: tasks/mysql-performance.yml
       when: inventory_hostname in groups['db']
 
     - name: Alp対応アーキテクチャを確認する
+      tags: [nginx, alp]
       ansible.builtin.assert:
         that: ansible_architecture in alp_arch_map
         fail_msg: "Unsupported alp architecture: {{ ansible_architecture }}"
+      when: inventory_hostname in groups['nginx']
 
     - name: NginxホストへAlpを導入する
+      tags: [nginx, alp]
       ansible.builtin.unarchive:
         src: "https://github.com/tkuchiki/alp/releases/download/v{{ alp_version }}/alp_linux_{{ alp_arch_map[ansible_architecture] }}.tar.gz"
         dest: /usr/local/bin
@@ -99,6 +93,7 @@
       when: inventory_hostname in groups['nginx']
 
     - name: Nginxホストへ静的配信用パッケージを導入する
+      tags: [nginx, packages]
       ansible.builtin.apt:
         name:
           - nginx
@@ -111,6 +106,7 @@
       when: inventory_hostname in groups['nginx']
 
     - name: Nginxのsystemd overrideディレクトリを作る
+      tags: [nginx]
       ansible.builtin.file:
         path: /etc/systemd/system/nginx.service.d
         state: directory
@@ -120,6 +116,7 @@
       when: inventory_hostname in groups['nginx']
 
     - name: Nginxのファイルディスクリプタ上限を設定する
+      tags: [nginx]
       ansible.builtin.template:
         src: templates/nginx.service-limit-nofile.conf.j2
         dest: /etc/systemd/system/nginx.service.d/limit-nofile.conf
@@ -131,6 +128,7 @@
       when: inventory_hostname in groups['nginx']
 
     - name: Nginxのworker接続数を設定する
+      tags: [nginx]
       ansible.builtin.replace:
         path: /etc/nginx/nginx.conf
         regexp: 'worker_connections\s+\d+;'
@@ -140,6 +138,7 @@
       when: inventory_hostname in groups['nginx']
 
     - name: Nginxのworker_rlimit_nofileを設定する
+      tags: [nginx]
       ansible.builtin.lineinfile:
         path: /etc/nginx/nginx.conf
         regexp: '^\s*worker_rlimit_nofile\s+'
@@ -149,34 +148,24 @@
       notify: Nginxを再起動する
       when: inventory_hostname in groups['nginx']
 
-    - name: Nginxのサイト設定を追加する
-      ansible.builtin.template:
-        src: templates/nginx.isucondition.conf.j2
-        dest: /etc/nginx/conf.d/isucondition.conf
-        owner: root
-        group: root
-        mode: "0644"
-        backup: true
-      notify: Nginxを再起動する
+    - name: Nginxのサイト設定を配置する
+      tags: [nginx]
+      ansible.builtin.include_tasks: tasks/nginx-site.yml
+      vars:
+        restart_nginx: true
       when: inventory_hostname in groups['nginx']
 
     - name: Nginxの既定サイトを無効化する
+      tags: [nginx]
       ansible.builtin.file:
         path: /etc/nginx/sites-enabled/default
         state: absent
       notify: Nginxを再起動する
       when: inventory_hostname in groups['nginx']
 
-    - name: Nginx設定を検証する
-      ansible.builtin.command:
-        argv:
-          - nginx
-          - -t
-      changed_when: false
-      when: inventory_hostname in groups['nginx']
-
-    # inventory の app/nginx/db 所属に合わせて起動・停止する（分割時の余計な同居サービスを止める）
+    # inventory の app/nginx/db 所属に合わせて起動・停止する
     - name: 役割に合わせてサービスを起動または停止する
+      tags: [services]
       ansible.builtin.systemd:
         name: "{{ item.name }}"
         state: "{{ 'started' if (item.roles | intersect(group_names) | length) > 0 else 'stopped' }}"
@@ -186,19 +175,11 @@
         label: "{{ item.name }}"
       failed_when: false
 
-    - name: Netdataを起動・自動起動にする
-      ansible.builtin.systemd:
-        name: "{{ netdata_service }}"
-        state: started
-        enabled: true
-
-    - name: DBホストのスロークエリログを有効にする
-      ansible.builtin.command:
-        argv:
-          - "{{ mysql_admin_command }}"
-          - "--execute=SET GLOBAL long_query_time={{ mysql_slow_query_time }}; SET GLOBAL slow_query_log='ON';"
-      changed_when: true
-      when: inventory_hostname in groups['db']
+    - name: 計測系（netdata / slow query）を有効にする
+      tags: [monitor]
+      ansible.builtin.include_tasks: tasks/monitor.yml
+      vars:
+        monitor_state: on
 
   handlers:
     - name: Goアプリのsystemd設定を反映する
@@ -215,5 +196,5 @@
 
     - name: MariaDBを再起動する
       ansible.builtin.systemd:
-        name: mariadb
+        name: "{{ mysql_service }}"
         state: restarted

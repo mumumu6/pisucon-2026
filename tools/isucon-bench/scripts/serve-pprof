@@ -2,10 +2,17 @@
 set -Eeuo pipefail
 
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+vars_file="$repository_root/tools/isucon-bench/ansible/group_vars/all.yml"
 session="${1:-}"
 search_dir="$repository_root/log${session:+/$session}"
 pid_file="$repository_root/log/.pprof-view.pid"
 output_file="$repository_root/log/.pprof-view.log"
+view_port="${PPROF_VIEW_PORT:-6070}"
+
+if [[ -f "$vars_file" ]]; then
+  extracted="$(sed -nE 's/^pprof_view_port:[[:space:]]*([0-9]+).*/\1/p' "$vars_file" | head -1)"
+  [[ -n "$extracted" ]] && view_port="$extracted"
+fi
 
 test -d "$search_dir" || {
   echo "profile directory not found: $search_dir" >&2
@@ -18,19 +25,18 @@ test -n "$profile" || {
   exit 1
 }
 
-# Stop only a pprof viewer previously started for this port.  This also
-# replaces a viewer started with the former foreground `make pprof-view`.
-old_pids="$(pgrep -f 'pprof -http=:6070' || true)"
+# Stop only a pprof viewer previously started for this port.
+old_pids="$(pgrep -f "pprof -http=:${view_port}" || true)"
 if [[ -n "$old_pids" ]]; then
   kill $old_pids 2>/dev/null || true
 fi
 
-setsid go tool pprof -http=:6070 -no_browser "$profile" >"$output_file" 2>&1 < /dev/null &
+setsid go tool pprof -http=":${view_port}" -no_browser "$profile" >"$output_file" 2>&1 < /dev/null &
 echo $! >"$pid_file"
 
 for _ in {1..20}; do
-  if ss -ltn 2>/dev/null | grep -qE '127\.0\.0\.1:6070|\[::1\]:6070|\*:6070'; then
-    echo "Updated http://localhost:6070 with $profile"
+  if ss -ltn 2>/dev/null | grep -qE "127\\.0\\.0\\.1:${view_port}|\\[::1\\]:${view_port}|\\*:${view_port}"; then
+    echo "Updated http://localhost:${view_port} with $profile"
     exit 0
   fi
   sleep 0.1

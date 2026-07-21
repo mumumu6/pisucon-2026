@@ -1,6 +1,6 @@
 [Service]
 LimitNOFILE={{ app_limit_nofile }}
-RuntimeDirectory=isucondition
+RuntimeDirectory={{ app_runtime_directory }}
 RuntimeDirectoryMode=0755
 Environment=SERVER_APP_SOCK={{ app_unix_socket }}
 Environment=GOGC={{ app_gogc }}

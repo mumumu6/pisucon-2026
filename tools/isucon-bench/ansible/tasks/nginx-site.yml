@@ -1,0 +1,24 @@
+---
+# setup.yml / build.yml から共有。nginx サイト設定を反映する。
+- name: Nginxのサイト設定を配置する
+  ansible.builtin.template:
+    src: templates/nginx.site.conf.j2
+    dest: "{{ nginx_conf_dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  become: true
+
+- name: Nginx設定を検証する
+  ansible.builtin.command:
+    argv: [nginx, -t]
+  become: true
+  changed_when: false
+
+- name: Nginxを再起動する
+  ansible.builtin.systemd:
+    name: nginx
+    state: restarted
+  become: true
+  when: restart_nginx | default(true)

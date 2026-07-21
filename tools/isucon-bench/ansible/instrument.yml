@@ -3,7 +3,7 @@
   hosts: app
   gather_facts: false
   vars:
-    pprof_source: "{{ remote_project_root }}/webapp/go/pprof.go"
+    pprof_source: "{{ app_working_dir }}/{{ pprof_filename }}"
   pre_tasks:
     - name: pprof設定を検証する
       ansible.builtin.assert:

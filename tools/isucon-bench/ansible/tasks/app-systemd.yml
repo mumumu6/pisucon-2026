@@ -1,0 +1,27 @@
+---
+# setup.yml / build.yml から共有。アプリの systemd drop-in を反映する。
+- name: Goアプリのsystemd overrideディレクトリを作る
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ app_service }}.d"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: GoアプリのLimitNOFILE・GOGC・GOMEMLIMIT・unix socketを設定する
+  ansible.builtin.template:
+    src: templates/app.service-override.conf.j2
+    dest: "/etc/systemd/system/{{ app_service }}.d/limit-nofile.conf"
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  become: true
+  register: app_systemd_override
+
+- name: systemdをdaemon-reloadする
+  ansible.builtin.systemd:
+    daemon_reload: true
+  become: true
+  when: app_systemd_override is changed or (force_daemon_reload | default(false))

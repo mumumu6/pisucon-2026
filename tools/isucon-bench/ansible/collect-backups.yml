@@ -11,7 +11,7 @@
       - /etc/nginx/conf.d
       - /etc/systemd/system
       - "{{ remote_project_root }}/webapp/go"
-    local_config_backup_root: "{{ playbook_dir }}/../../../log/config-backups"
+    local_config_backup_root: "{{ local_log_root }}/config-backups"
   tasks:
     - name: バックアップ探索先の存在を確認する
       ansible.builtin.stat:

@@ -1,24 +1,22 @@
 all:
-  vars:
-    ansible_user: isucon
   children:
+    # 役割グループ。同じホストを複数グループに入れてよい。
+    # 1台構成: 全グループに同じホスト / 3台構成: 役割ごとに分ける
     app:
       hosts:
         isucon-1:
-          # 公開IPと private が食い違っていたので実機に合わせて修正
-          # 52.195.6.219 = 10.0.0.202 (app)
           ansible_host: 52.195.6.219
+          # nginx 分離時は group_vars の nginx_app_backend_host にこれを書く
           private_ip: 10.0.0.202
     db:
       hosts:
         isucon-2:
-          # 13.193.217.22 = 10.0.0.121 (db, MYSQL_HOST)
           ansible_host: 13.193.217.22
           private_ip: 10.0.0.121
     nginx:
       hosts:
         isucon-1:
-    # 開始案内、スコア入力、統合レポートの基準にするホストを1台指定します。
+    # ベンチ案内・スコア入力・統合レポートの基準ホスト（ちょうど1台）
     reporter:
       hosts:
         isucon-1:

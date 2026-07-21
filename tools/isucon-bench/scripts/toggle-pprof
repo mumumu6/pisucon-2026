@@ -3,13 +3,27 @@ set -Eeuo pipefail
 
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 template="$repository_root/tools/isucon-bench/ansible/templates/pprof.go.j2"
+vars_file="$repository_root/tools/isucon-bench/ansible/group_vars/all.yml"
 relative_target="webapp/go/pprof.go"
+pprof_listen="127.0.0.1:6060"
+if [[ -f "$vars_file" ]]; then
+  extracted_path="$(sed -nE 's/^local_pprof_relative:[[:space:]]*([^#[:space:]]+).*/\1/p' "$vars_file" | head -1)"
+  [[ -n "$extracted_path" ]] && relative_target="$extracted_path"
+  extracted="$(sed -nE 's/^pprof_listen:[[:space:]]*"([^"]+)".*/\1/p' "$vars_file" | head -1)"
+  [[ -n "$extracted" ]] && pprof_listen="$extracted"
+fi
 target="$repository_root/$relative_target"
 state="${1:-}"
 
+render_pprof() {
+  sed "s/{{ pprof_listen }}/${pprof_listen//\//\\/}/g" "$template"
+}
+
 case "$state" in
   on)
-    install -m 0644 "$template" "$target"
+    mkdir -p "$(dirname "$target")"
+    render_pprof >"$target"
+    chmod 0644 "$target"
     commit_message="chore: enable pprof"
     ;;
   off)

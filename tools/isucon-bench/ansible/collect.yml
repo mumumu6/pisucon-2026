@@ -34,7 +34,7 @@
   vars:
     selected_session: "{{ hostvars[groups['reporter'][0]].selected_session }}"
     session_id: "{{ selected_session }}"
-    local_session_dir: "{{ playbook_dir }}/../../../log/{{ selected_session }}"
+    local_session_dir: "{{ local_log_root }}/{{ selected_session }}"
     per_host_session_dir: "{{ remote_log_root }}/{{ selected_session }}/{{ inventory_hostname }}"
     collected_artifact_names:
       - alp.txt
