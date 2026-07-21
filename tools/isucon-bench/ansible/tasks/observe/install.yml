@@ -1,0 +1,40 @@
+---
+# 観測スタック導入（中央: reporter / エージェント: 全ホスト）
+- name: 観測用アーキテクチャを解決する
+  ansible.builtin.set_fact:
+    observe_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] }}"
+    observe_loki_push_host: >-
+      {{ hostvars[groups['reporter'][0]].private_ip
+         | default(hostvars[groups['reporter'][0]].ansible_host) }}
+  when: observe_enabled | bool
+
+- name: 観測用ディレクトリを作る
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ observe_root }}"
+    - "{{ observe_root }}/bin"
+    - "{{ observe_root }}/data"
+  when: observe_enabled | bool
+
+- name: reporter に中央スタックを入れる
+  ansible.builtin.include_tasks: install-central.yml
+  when:
+    - observe_enabled | bool
+    - inventory_hostname in groups.get('reporter', [])
+
+- name: node_exporter を入れる
+  ansible.builtin.include_tasks: install-node-exporter.yml
+  when: observe_enabled | bool
+
+- name: Alloy を入れる
+  ansible.builtin.include_tasks: install-alloy.yml
+  when: observe_enabled | bool
+
+- name: mysqld_exporter を入れる
+  ansible.builtin.include_tasks: install-mysqld-exporter.yml
+  when:
+    - observe_enabled | bool
+    - inventory_hostname in groups.get('db', [])

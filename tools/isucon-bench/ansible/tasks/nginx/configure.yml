@@ -1,6 +1,6 @@
 ---
 # Nginx 周りの設定をまとめて反映する。
-# systemd drop-in は現状 LimitNOFILE 程度。nginx.conf の worker 系とサイト設定も含む。
+# systemd drop-in は現状 LimitNOFILE 程度。本体設定は nginx.conf 一本。
 - name: Nginxの設定を反映する
   become: true
   block:
@@ -26,38 +26,15 @@
         backup: true
       notify: Nginxを再起動する
 
-    - name: 旧 drop-in 名があれば片付ける
-      ansible.builtin.file:
-        path: /etc/systemd/system/nginx.service.d/limit-nofile.conf
-        state: absent
-      notify: Nginxを再起動する
-
-    - name: nginx.conf の worker_connections を上げる
-      ansible.builtin.replace:
-        path: /etc/nginx/nginx.conf
-        regexp: 'worker_connections\s+\d+;'
-        replace: 'worker_connections 65535;'
-        backup: true
-      notify: Nginxを再起動する
-
-    - name: nginx.conf に worker_rlimit_nofile を書く
-      ansible.builtin.lineinfile:
-        path: /etc/nginx/nginx.conf
-        regexp: '^\s*worker_rlimit_nofile\s+'
-        line: "worker_rlimit_nofile 65535;"
-        insertafter: '^worker_processes'
-        backup: true
-      notify: Nginxを再起動する
-
     - name: 既定サイトを外す
       ansible.builtin.file:
         path: /etc/nginx/sites-enabled/default
         state: absent
       notify: Nginxを再起動する
 
-    - name: サイト設定を反映する
+    - name: nginx.conf を反映する
       ansible.builtin.template:
-        src: templates/nginx.site.conf.j2
+        src: templates/nginx.conf.j2
         dest: "{{ nginx_conf_dest }}"
         owner: root
         group: root

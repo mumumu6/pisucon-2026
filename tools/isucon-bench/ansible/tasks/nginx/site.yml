@@ -1,14 +1,14 @@
 ---
-# サイト設定だけ載せ替えたいとき用（configure.yml の一部と同じ）
-- name: Nginxのサイト設定を反映する
+# nginx.conf だけ載せ替えたいとき用（configure.yml の一部と同じ）
+- name: Nginxの設定を反映する
   become: true
   block:
     - name: トポロジを解決する
       ansible.builtin.include_tasks: tasks/common/topology-facts.yml
 
-    - name: サイト設定を反映する
+    - name: nginx.conf を反映する
       ansible.builtin.template:
-        src: templates/nginx.site.conf.j2
+        src: templates/nginx.conf.j2
         dest: "{{ nginx_conf_dest }}"
         owner: root
         group: root

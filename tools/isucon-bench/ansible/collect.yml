@@ -40,7 +40,6 @@
       - alp.txt
       - cpu.pprof
       - git-revision.txt
-      - netdata.txt
       - pprof.txt
       - pt-query-digest.txt
       - score.txt

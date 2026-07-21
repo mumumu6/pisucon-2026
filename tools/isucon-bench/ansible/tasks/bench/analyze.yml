@@ -26,10 +26,6 @@
   ansible.builtin.include_tasks: tasks/bench/analyze-app.yml
   when: inventory_hostname in groups['app']
 
-- name: Netdata結果を解析する
-  ansible.builtin.include_tasks: tasks/bench/analyze-netdata.yml
-  when: netdata_enabled | bool
-
 - name: 解析後に生ログを削除する
   ansible.builtin.file:
     path: "{{ item }}"
@@ -37,9 +33,3 @@
   loop:
     - "{{ session_dir }}/access.log"
     - "{{ session_dir }}/mysql-slow.log"
-
-- name: 集計後にnetdataの生レスポンスを削除する
-  ansible.builtin.file:
-    path: "{{ session_dir }}/netdata"
-    state: absent
-  when: netdata_enabled | bool

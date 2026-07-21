@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# reporter 上の Grafana (127.0.0.1:3000) を SSH トンネルで手元に出す。
+# 使い方:
+#   grafana-view              # reporter（無指定時）
+#   grafana-view isucon-1     # 特定ホスト（通常は reporter）
+set -Eeuo pipefail
+
+tool="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+inventory="${ANSIBLE_INVENTORY:-$tool/ansible/inventory.yml}"
+vars_file="${tool}/ansible/group_vars/all.yml"
+host_arg="${1:-}"
+port="${GRAFANA_LOCAL_PORT:-}"
+
+need() { command -v "$1" >/dev/null || { echo "$1 is required" >&2; exit 1; }; }
+need ansible-inventory
+need jq
+
+if [[ -z "$port" && -f "$vars_file" ]]; then
+  port="$(sed -nE 's/^observe_grafana_view_port:[[:space:]]*([0-9]+).*/\1/p' "$vars_file" | head -1)"
+fi
+port="${port:-3000}"
+
+inv_json="$(ansible-inventory -i "$inventory" --list)"
+
+tunnel() {
+  local h="$1"
+  local hv addr user sport
+  local -a args
+
+  hv="$(jq -ec --arg h "$h" '._meta.hostvars[$h]' <<<"$inv_json")" \
+    || { echo "unknown host: $h" >&2; return 1; }
+  addr="$(jq -r --arg h "$h" '.ansible_host // $h' <<<"$hv")"
+  user="$(jq -r '.ansible_user // "isucon"' <<<"$hv")"
+  sport="$(jq -r '.ansible_port // empty' <<<"$hv")"
+
+  if curl -fsS --max-time 1 "http://127.0.0.1:${port}/api/health" >/dev/null 2>&1; then
+    echo "already: http://localhost:${port}"
+    return 0
+  fi
+
+  if ss -ltn 2>/dev/null | grep -qE ":${port}\\s"; then
+    echo "port ${port} is already in use (Grafana tunnel?)" >&2
+    echo "try: http://localhost:${port}" >&2
+    return 1
+  fi
+
+  args=(-o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -N -L "${port}:127.0.0.1:3000")
+  [[ -n "$sport" ]] && args+=(-p "$sport")
+
+  echo "Grafana: http://localhost:${port} ($h)"
+  echo "Dashboard: ISUCON Overview"
+  exec ssh "${args[@]}" "$user@$addr"
+}
+
+if [[ -z "$host_arg" ]]; then
+  if curl -fsS --max-time 1 "http://127.0.0.1:${port}/api/health" >/dev/null 2>&1; then
+    echo "already: http://localhost:${port}"
+    exit 0
+  fi
+  host_arg="$(jq -r '.reporter.hosts[0] // empty' <<<"$inv_json")"
+fi
+
+[[ -n "$host_arg" ]] || { echo "HOST を指定してください（reporter 未設定）" >&2; exit 1; }
+tunnel "$host_arg"

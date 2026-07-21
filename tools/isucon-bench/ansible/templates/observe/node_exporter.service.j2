@@ -1,0 +1,17 @@
+[Unit]
+Description: Prometheus Node Exporter (ISUCON observe)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nobody
+Group=nogroup
+ExecStart={{ observe_root }}/bin/node_exporter \
+  --web.listen-address={{ private_ip | default('0.0.0.0') }}:{{ observe_node_exporter_port }} \
+  --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|var/lib/docker/.+)($|/)
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

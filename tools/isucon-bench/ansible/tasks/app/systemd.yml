@@ -24,11 +24,6 @@
         backup: true
       register: app_systemd_override
 
-    - name: 旧 drop-in 名があれば片付ける
-      ansible.builtin.file:
-        path: "/etc/systemd/system/{{ app_service }}.d/limit-nofile.conf"
-        state: absent
-
     - name: daemon-reload する
       ansible.builtin.systemd:
         daemon_reload: true

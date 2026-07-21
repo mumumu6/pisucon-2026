@@ -8,7 +8,6 @@
     groups['nginx']    … alp.txt を持つホスト
     groups['db']       … pt-query-digest.txt を持つホスト
     groups['app']      … pprof.txt を持つホスト
-    groups['all']      … netdata.txt を持つホスト
 #}
 # ISUCON benchmark report
 
@@ -16,6 +15,7 @@
 - Reporter: `{{ groups['reporter'][0] }}`
 - Git revision: `{{ lookup('ansible.builtin.file', local_session_dir + '/' + groups['reporter'][0] + '/git-revision.txt', errors='ignore') | default('unknown', true) }}`
 - Score: `{{ lookup('ansible.builtin.file', local_session_dir + '/' + groups['reporter'][0] + '/score.txt', errors='ignore') | default('unknown', true) }}`
+- Live metrics/logs: Grafana on reporter (`make grafana-view`)
 
 {% for host in groups['nginx'] %}
 ## alp: {{ host }}
@@ -38,14 +38,6 @@
 
 ```text
 {{ lookup('ansible.builtin.file', local_session_dir + '/' + host + '/pprof.txt', errors='ignore') | default('No CPU profile collected.', true) }}
-```
-
-{% endfor %}
-{% for host in groups['all'] %}
-## netdata: {{ host }}
-
-```text
-{{ lookup('ansible.builtin.file', local_session_dir + '/' + host + '/netdata.txt', errors='ignore') | default('No netdata summary collected.', true) }}
 ```
 
 {% endfor %}

@@ -1,5 +1,6 @@
 ---
 # Ansible の backup: true でリモートに残ったタイムスタンプ付きバックアップを手元へ回収する。
+# Makefile（bootstrap / build / mysql-tune / fleet-* / pull）から呼ぶ。
 - name: 設定バックアップを手元PCへ回収する
   hosts: all
   become: true
@@ -8,7 +9,6 @@
     config_backup_search_paths:
       - /etc/mysql/mariadb.conf.d
       - /etc/nginx
-      - /etc/nginx/conf.d
       - /etc/systemd/system
       - "{{ remote_project_root }}/webapp/go"
     local_config_backup_root: "{{ local_log_root }}/config-backups"

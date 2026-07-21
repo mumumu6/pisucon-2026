@@ -14,7 +14,10 @@
   ansible.builtin.command:
     argv: >-
       {{ ['alp', access_log_format, '--file', session_dir + '/access.log',
-          '--sort', 'sum', '--reverse'] + alp_options }}
+          '--sort', 'sum', '--reverse']
+         + ((['-m', alp_matching_groups | join(',')] if (alp_matching_groups | default([]) | length) > 0 else [])
+            + (alp_extra_options | default([]))
+            + (alp_options | default([]))) }}
   register: alp_result
   changed_when: false
   failed_when: false

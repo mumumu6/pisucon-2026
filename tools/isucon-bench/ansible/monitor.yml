@@ -1,6 +1,6 @@
 ---
 # monitor_state: on | off
-# netdata / slow query / pprof をまとめて切り替える
+# observe (Grafana/Prometheus/Loki) / slow query / pprof をまとめて切り替える
 - name: 計測系を切り替える
   hosts: all
   gather_facts: false

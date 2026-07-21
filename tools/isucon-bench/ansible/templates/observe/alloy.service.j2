@@ -1,0 +1,14 @@
+[Unit]
+Description=Grafana Alloy (ISUCON observe logs)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart={{ observe_root }}/bin/alloy run {{ observe_root }}/alloy/config.alloy --storage.path={{ observe_root }}/data/alloy --server.http.listen-addr=0.0.0.0:{{ observe_alloy_metrics_port | default(12345) }}
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

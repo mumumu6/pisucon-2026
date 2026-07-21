@@ -1,5 +1,5 @@
 ---
-# リポジトリを git_repository / git_version へ同期する（make pull / bootstrap）
+# リポジトリを git_repository / git_version へ同期する（make server-sync / bootstrap）
 - name: リポジトリの.git有無を確認する
   ansible.builtin.stat:
     path: "{{ remote_project_root }}/.git"
@@ -29,7 +29,7 @@
     version: "{{ git_version }}"
     update: true
     # 計測のon/offでpprof.goを生成・削除するため、サーバー側の追跡ファイルに
-    # 差分が残ることがある。make pullはGitHubの指定ブランチを正として同期する。
+    # 差分が残ることがある。make server-sync は GitHub の指定ブランチを正として同期する。
     force: true
     accept_newhostkey: true
 

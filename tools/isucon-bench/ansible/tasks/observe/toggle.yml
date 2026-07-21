@@ -1,0 +1,38 @@
+---
+# monitor_state: on | off
+- name: 観測エージェントを切り替える
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: "{{ 'started' if monitor_state == 'on' else 'stopped' }}"
+    enabled: "{{ monitor_state == 'on' }}"
+  loop:
+    - node_exporter
+    - alloy
+  become: true
+  failed_when: false
+  when: observe_enabled | bool
+
+- name: mysqld_exporter を切り替える
+  ansible.builtin.systemd:
+    name: mysqld_exporter
+    state: "{{ 'started' if monitor_state == 'on' else 'stopped' }}"
+    enabled: "{{ monitor_state == 'on' }}"
+  become: true
+  failed_when: false
+  when:
+    - observe_enabled | bool
+    - inventory_hostname in groups.get('db', [])
+
+- name: 中央スタックを切り替える
+  ansible.builtin.command:
+    argv: >-
+      {{ ['docker', 'compose', 'start'] if monitor_state == 'on'
+         else ['docker', 'compose', 'stop'] }}
+    chdir: "{{ observe_compose_dir }}"
+  become: true
+  register: observe_compose_toggle
+  changed_when: observe_compose_toggle.rc == 0
+  failed_when: false
+  when:
+    - observe_enabled | bool
+    - inventory_hostname in groups.get('reporter', [])

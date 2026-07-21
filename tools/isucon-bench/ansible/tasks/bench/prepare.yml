@@ -1,5 +1,5 @@
 ---
-# ベンチ開始前: DB/nginx/app 再起動、ログ初期化、slow query ON、netdata 起動
+# ベンチ開始前: DB/nginx/app 再起動、ログ初期化、slow query ON、観測スタック起動
 - name: ベンチ前にMariaDBを再起動する
   ansible.builtin.include_tasks: tasks/db/restart.yml
   when: inventory_hostname in groups['db']
@@ -34,13 +34,11 @@
   ansible.builtin.include_tasks: tasks/nginx/restart.yml
   when: inventory_hostname in groups['nginx']
 
-- name: 計測中のnetdataを起動する
-  ansible.builtin.systemd:
-    name: "{{ netdata_service }}"
-    state: started
-    enabled: true
-  become: true
-  when: netdata_enabled | bool
+- name: 計測中の観測スタックを起動する
+  ansible.builtin.include_tasks: tasks/observe/toggle.yml
+  vars:
+    monitor_state: on
+  when: observe_enabled | bool
 
 - name: Nginxのaccess logを確認する
   ansible.builtin.stat:

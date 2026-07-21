@@ -1,12 +1,12 @@
 ---
-# 全ホスト共通パッケージ（curl/git/jq/netdata）
+# 全ホスト共通パッケージ（curl/git/jq/unzip）
 - name: 共通パッケージを導入する
   ansible.builtin.apt:
     name:
       - curl
       - git
       - jq
-      - netdata
+      - unzip
     state: present
     update_cache: true
     update_cache_retries: 5

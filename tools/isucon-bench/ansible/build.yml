@@ -1,5 +1,5 @@
 ---
-# pull 後のデプロイ。app/deploy と nginx/site を再利用。
+# server-sync 後のデプロイ。app/deploy と nginx/site を再利用。
 - name: アプリをビルド・再起動し、関連設定を反映する
   hosts: app:nginx
   gather_facts: false

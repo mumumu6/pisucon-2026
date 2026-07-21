@@ -15,7 +15,7 @@ sudo apt install -y ansible jq git gh
 
 1. `tools/isucon-bench/ansible/inventory.yml` … 接続先 IP と `app` / `db` / `nginx` / `reporter`
 2. `tools/isucon-bench/ansible/group_vars/all.yml` 先頭 … `app_name` / パス / Git / ビルドコマンド
-3. （必要なら）`templates/nginx.site.conf.j2` や `mysql-performance.cnf.j2` を直接編集
+3. （必要なら）`templates/nginx.conf.j2` や `mysql-performance.cnf.j2` を直接編集
 4. **GitHub 用 SSH 鍵（デプロイ鍵）**を `tools/isucon-bench/ansible/files/github_id_ed25519[.pub]` に配置（gitignore 済み）  
    → サーバーから private リポジトリを pull するための鍵。**チームで1組あればよい**（誰か1人の鍵でOK）。詳細は `tools/isucon-bench/ansible/files/README.md`
 5. **DB を別ホストにするとき** … サーバー上の `~/env.sh` の `MYSQL_HOST` を **手で** db の `private_ip` に直す（Ansible は触らない）
@@ -56,8 +56,9 @@ make bench
 
 ```bash
 make help
-make pull            # 全サーバーへ git sync
-make build           # pull + systemd + ビルド + app/nginx 再起動
+make server-sync     # 全サーバーへ git sync
+make build           # server-sync + systemd + ビルド + app/nginx 再起動
+make pull            # 最新ベンチ結果 + 設定バックアップを手元へ
 make bench           # 計測・解析・回収
 make bench PUBLISH=true
 make finish          # 本気計測前に計測負荷を外す
@@ -66,23 +67,29 @@ make collect SESSION=20260719-123000
 
 `make bench` の流れ:
 
-1. pull → app ビルド・再起動、nginx / MariaDB 再起動
+1. server-sync → app ビルド・再起動、nginx / MariaDB 再起動
 2. ログ初期化、pprof 武装
 3. ブラウザで公式ベンチ開始を待つ → スコア入力
-4. alp / pt-query-digest / pprof / netdata 解析
+4. alp / pt-query-digest / pprof 解析（メトリクス・ログは Grafana）
 5. `log/<SESSION>/` へ回収、`REPORT.md` 生成
 
 ## Make ターゲット一覧
 
 | ターゲット | 用途 |
 | --- | --- |
-| `bootstrap` | ツール導入 + git + 計測系 ON + 設定バックアップ回収 |
-| `fleet-setup` | 計測ツール導入＋計測系 ON |
-| `fleet-enable` / `fleet-disable` | 計測系（netdata / slow query / pprof）の ON/OFF |
-| `mysql-tune` | MariaDB 性能 cnf 反映 |
-| `pprof-view` / `netdata-view` | 手元でプロファイル / Netdata を見る |
+| `bootstrap` | ツール導入 + git + 計測系 ON + `collect-backups` |
+| `server-sync` | GitHub 指定ブランチを全サーバーへ同期 |
+| `pull` | 最新ベンチ結果 + `collect-backups` を手元へ取得 |
+| `build` | server-sync + ビルド/再起動 + `collect-backups` |
+| `fleet-setup` | 計測ツール導入＋計測系 ON + `collect-backups` |
+| `fleet-enable` / `fleet-disable` | 計測系 ON/OFF + `collect-backups` |
+| `mysql-tune` | MariaDB 性能 cnf 反映 + `collect-backups` |
+| `collect-backups` | 設定バックアップだけ回収 |
+| `pprof-view` / `grafana-view` | 手元でプロファイル / Grafana を見る |
 | `restart` | 全ホスト OS 再起動（追試用） |
 | `finish` | 最終計測前に計測系を外す（=`fleet-disable`） |
+
+観測スタック（`observe`）は reporter に Grafana + Prometheus + Loki、各ホストに node_exporter / Alloy（+ DB に mysqld_exporter）です。`make grafana-view` で `http://localhost:3000` を開きます。
 
 ## 構成
 
@@ -100,7 +107,8 @@ Makefile
     │   │   ├── app/      # packages, systemd, build, restart, deploy, pprof
     │   │   ├── nginx/    # packages, alp, configure, site, restart
     │   │   ├── db/       # packages, performance, restart, slow-query
-    │   │   ├── monitor/  # toggle（netdata + slow query + pprof）
+    │   │   ├── observe/  # Grafana/Prometheus/Loki + exporters/Alloy
+    │   │   ├── monitor/  # toggle（observe + slow query + pprof）
     │   │   └── bench/    # prepare, measure, analyze-*
     │   ├── templates/
     │   └── files/        # GitHub SSH 鍵（gitignore）

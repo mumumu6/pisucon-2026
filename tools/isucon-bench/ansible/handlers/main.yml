@@ -15,3 +15,13 @@
     name: "{{ app_service }}"
     daemon_reload: true
     state: restarted
+
+- name: Observe agent を再読み込みする
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Alloy を再起動する
+  ansible.builtin.systemd:
+    name: alloy
+    state: restarted
+    daemon_reload: true

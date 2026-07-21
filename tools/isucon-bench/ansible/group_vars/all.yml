@@ -1,7 +1,7 @@
 ---
 # =============================================================================
 # 大会ごとに書き換える設定（別回の ISUCON では主にここを変える）
-# nginx の location / gzip、MariaDB の数値などは templates/ を直接編集する
+# nginx の location / gzip、MariaDB の数値などは templates/nginx.conf.j2 などを直接編集する
 # =============================================================================
 
 # アプリの識別名。サービス名・socket・nginx conf 名などの組み立て元。
@@ -31,8 +31,8 @@ app_unix_socket: "/run/{{ app_name }}/{{ app_name }}.sock"
 # nginx と app が別ホストのときアプリが待つ TCP ポート（main.go の SERVER_APP_PORT）
 app_listen_port: 3000
 
-# --- Nginx（細かい中身は templates/nginx.site.conf.j2。upstream 先は inventory から自動）---
-nginx_conf_dest: "/etc/nginx/conf.d/{{ app_name }}.conf"
+# --- Nginx（中身は templates/nginx.conf.j2。upstream 先は inventory から自動）---
+nginx_conf_dest: /etc/nginx/nginx.conf
 
 # --- pprof ---
 pprof_filename: pprof.go
@@ -67,17 +67,27 @@ github_ssh_known_hosts: |
 alp_version: "1.0.21"
 access_log: /var/log/nginx/access.log
 access_log_format: ltsv
-# UUID パスを正規化（長いパスを先に書く）
-alp_options:
-  - -m
-  - >-
-    /api/isu/[0-9a-f-]+/icon,
-    /api/isu/[0-9a-f-]+/graph,
-    /api/isu/[0-9a-f-]+,
-    /api/condition/[0-9a-f-]+,
-    /isu/[0-9a-f-]+/condition,
-    /isu/[0-9a-f-]+/graph,
-    /isu/[0-9a-f-]+
+
+# --- URI 正規化（回・問題ごとに変える。tools 本体は触らない）---
+# Alloy RPS 用: stage.replace のリスト（expression はキャプチャ1つ必須 / RE2）
+access_log_uri_normalizations:
+  - expression: '(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})'
+    replace: '/:uuid'
+# access.log メトリクス集計前に落とす行（Loki/Alloy 共通の stage.drop）
+access_log_drop_patterns:
+  - expression: 'uri:/assets/'
+    reason: static-assets
+# alp -m 用マッチンググループ（長いパスを先に）
+alp_matching_groups:
+  - /api/isu/[0-9a-f-]+/icon
+  - /api/isu/[0-9a-f-]+/graph
+  - /api/isu/[0-9a-f-]+
+  - /api/condition/[0-9a-f-]+
+  - /isu/[0-9a-f-]+/condition
+  - /isu/[0-9a-f-]+/graph
+  - /isu/[0-9a-f-]+
+# alp に足す追加オプション（例: ['--qs', '...']）。-m は alp_matching_groups から自動生成
+alp_extra_options: []
 
 mysql_admin_command: mysql
 mysql_service: mariadb
@@ -93,11 +103,25 @@ mysql_password: isucon
 pt_query_digest_timeout_seconds: 180
 pt_query_digest_options: []
 
-netdata_enabled: true
-netdata_service: netdata
-netdata_url: http://127.0.0.1:19999
-netdata_charts:
-  - system.cpu
-  - system.ram
-  - system.load
-  - system.io
+# --- 観測スタック（reporter に Grafana+Prometheus+Loki、各ホストに exporter/Alloy）---
+observe_enabled: true
+observe_root: /opt/isucon-obs
+observe_compose_dir: "{{ observe_root }}/compose"
+observe_grafana_port: 3000
+observe_prometheus_port: 9090
+observe_loki_port: 3100
+observe_node_exporter_port: 9100
+observe_mysqld_exporter_port: 9104
+observe_grafana_view_port: 3000
+# access.log も Loki へ送る（量が多い。最終計測前は make finish）
+observe_ship_access_log: true
+# メトリクス取得間隔（netdata 相当に寄せるなら 1s）
+observe_scrape_interval: 1s
+observe_alloy_metrics_port: 12345
+# ピン留めバージョン（更新時はここだけ変える）
+prometheus_image: "prom/prometheus:v2.55.1"
+loki_image: "grafana/loki:3.3.2"
+grafana_image: "grafana/grafana:11.4.0"
+node_exporter_version: "1.8.2"
+alloy_version: "1.5.1"
+mysqld_exporter_version: "0.15.1"
