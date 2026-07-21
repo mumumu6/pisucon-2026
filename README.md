@@ -18,6 +18,7 @@ sudo apt install -y ansible jq git gh
 3. （必要なら）`templates/nginx.site.conf.j2` や `mysql-performance.cnf.j2` を直接編集
 4. **GitHub 用 SSH 鍵（デプロイ鍵）**を `tools/isucon-bench/ansible/files/github_id_ed25519[.pub]` に配置（gitignore 済み）  
    → サーバーから private リポジトリを pull するための鍵。**チームで1組あればよい**（誰か1人の鍵でOK）。詳細は `tools/isucon-bench/ansible/files/README.md`
+5. **DB を別ホストにするとき** … サーバー上の `~/env.sh` の `MYSQL_HOST` を **手で** db の `private_ip` に直す（Ansible は触らない）
 
 役割は `inventory.yml` のグループと `private_ip` で決まる。nginx↔app の接続先は Ansible が自動で埋める:
 
@@ -25,10 +26,10 @@ sudo apt install -y ansible jq git gh
 | --- | --- | --- |
 | nginx → app | unix socket | `private_ip:app_listen_port`（app 複数なら全部） |
 | app listen | `SERVER_APP_SOCK` | `SERVER_APP_PORT` |
+| `env.sh` の `MYSQL_HOST` | `127.0.0.1` のまま | **手で** db の `private_ip` に変更 |
 
 MariaDB は構成によらず `bind-address=0.0.0.0` + リモート GRANT。  
-`env.sh`（`MYSQL_HOST` など）は **Ansible では触らない**。DB を別ホストにするときはサーバー上の `~/env.sh` を手で直す（例年どおり systemd の `EnvironmentFile` が読む）。
-
+`env.sh` は例年どおり systemd の `EnvironmentFile` が読む。Ansible では書き換えないので、DB 分離時は必ず手で直す。
 ```bash
 make bootstrap
 make bench
