@@ -117,7 +117,7 @@ fleet_services:
 
 # --- GitHub 用 SSH 鍵（いわゆるデプロイ鍵）---
 # サーバーから private リポジトリへ git clone/fetch するための GitHub SSH 鍵。
-# 手元の GitHub アカウント鍵でも、リポジトリの Deploy key でも可。
+# チームで1組あればよい（メンバー各自の鍵は不要。誰か1人の鍵 or Deploy key を共有）。
 # 秘密鍵は Git 管理しない（files/ は .gitignore 済み）。bootstrap/setup が全ホストへ配る。
 # 手元（Ansible 実行マシン）にある秘密鍵のパス
 github_ssh_private_key_src: "{{ playbook_dir }}/files/github_id_ed25519"
