@@ -16,7 +16,10 @@ sudo apt install -y ansible jq git gh
 1. `tools/isucon-bench/ansible/inventory.yml` … 接続先 IP と `app` / `db` / `nginx` / `reporter`
 2. `tools/isucon-bench/ansible/group_vars/all.yml` 先頭 … `app_name` / パス / Git / ビルドコマンド / nginx ルーティング
 3. （必要なら）`templates/nginx.site.conf.j2` … ルーティング変数で足りない大会向け
-4. デプロイ鍵を `tools/isucon-bench/ansible/files/github_id_ed25519[.pub]` に配置（gitignore 済み）
+4. **GitHub 用 SSH 鍵（デプロイ鍵）**を `tools/isucon-bench/ansible/files/github_id_ed25519[.pub]` に配置（gitignore 済み）  
+   → サーバーから private リポジトリを pull するための鍵。詳細は `tools/isucon-bench/ansible/files/README.md`
+
+変数の意味は `group_vars/all.yml` の各行コメントを参照。
 
 ```bash
 make bootstrap
