@@ -3,6 +3,9 @@
 - name: Nginxのサイト設定を反映する
   become: true
   block:
+    - name: トポロジを解決する
+      ansible.builtin.include_tasks: tasks/common/topology-facts.yml
+
     - name: サイト設定を反映する
       ansible.builtin.template:
         src: templates/nginx.site.conf.j2

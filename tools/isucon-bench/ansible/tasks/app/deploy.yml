@@ -1,9 +1,12 @@
 ---
-# systemd drop-in → ビルド → 再起動（make build / bench から再利用）
+# systemd drop-in → env.sh → ビルド → 再起動
 - name: アプリのsystemd overrideを配置する
   ansible.builtin.include_tasks: tasks/app/systemd.yml
   vars:
     force_daemon_reload: "{{ force_daemon_reload | default(true) }}"
+
+- name: env.sh を配置する
+  ansible.builtin.include_tasks: tasks/app/env.yml
 
 - name: アプリをビルドする
   ansible.builtin.include_tasks: tasks/app/build.yml

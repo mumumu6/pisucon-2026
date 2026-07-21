@@ -19,7 +19,8 @@ sudo apt install -y ansible jq git gh
 4. **GitHub 用 SSH 鍵（デプロイ鍵）**を `tools/isucon-bench/ansible/files/github_id_ed25519[.pub]` に配置（gitignore 済み）  
    → サーバーから private リポジトリを pull するための鍵。**チームで1組あればよい**（誰か1人の鍵でOK）。詳細は `tools/isucon-bench/ansible/files/README.md`
 
-変数の意味は `group_vars/all.yml` のコメントを参照。nginx の location / gzip や DB の数値はテンプレ直書き。
+役割は `inventory.yml` のグループと `private_ip` で決まる。nginx→app や app→db の接続先は
+Ansible が自動で埋める（同居なら unix / 127.0.0.1、分離なら private_ip）。
 
 ```bash
 make bootstrap

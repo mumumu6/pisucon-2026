@@ -1,6 +1,8 @@
 ---
 # setup / build から共有。アプリの systemd drop-in を反映する。
-# 中身（GOGC 等）は templates/app.service-override.conf.j2 を直接編集する。
+- name: トポロジを解決する
+  ansible.builtin.include_tasks: tasks/common/topology-facts.yml
+
 - name: アプリのsystemd設定を反映する
   become: true
   block:

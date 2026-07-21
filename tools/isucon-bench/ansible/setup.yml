@@ -30,6 +30,8 @@
           ansible.builtin.include_tasks: tasks/app/systemd.yml
           vars:
             force_daemon_reload: true
+        - name: env.sh を配置する
+          ansible.builtin.include_tasks: tasks/app/env.yml
 
     - name: DB役割をセットアップする
       tags: [db]

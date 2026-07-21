@@ -4,6 +4,9 @@
 - name: Nginxの設定を反映する
   become: true
   block:
+    - name: トポロジを解決する
+      ansible.builtin.include_tasks: tasks/common/topology-facts.yml
+
     - name: systemd drop-in 用ディレクトリを用意する
       ansible.builtin.file:
         path: /etc/systemd/system/nginx.service.d

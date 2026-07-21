@@ -1,0 +1,19 @@
+---
+# inventory の役割と private_ip から、接続先を自動で決める。
+- name: トポロジ用の接続先を決める
+  ansible.builtin.set_fact:
+    topology_app_host: "{{ groups['app'][0] }}"
+    topology_db_host: "{{ groups['db'][0] }}"
+    # app / db のプライベート IP（無ければ公開 IP）
+    app_backend_ip: >-
+      {{ hostvars[groups['app'][0]].private_ip
+         | default(hostvars[groups['app'][0]].ansible_host) }}
+    db_backend_ip: >-
+      {{ hostvars[groups['db'][0]].private_ip
+         | default(hostvars[groups['db'][0]].ansible_host) }}
+    # この nginx ホストに app もいる → upstream は unix
+    nginx_app_colocated: "{{ inventory_hostname in groups.get('app', []) }}"
+    # この app ホストに nginx もいる → アプリは unix listen
+    app_listen_unix: "{{ inventory_hostname in groups.get('nginx', []) }}"
+    # この app ホストに db もいる → MYSQL_HOST=127.0.0.1
+    app_db_colocated: "{{ inventory_hostname in groups.get('db', []) }}"

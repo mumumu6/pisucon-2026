@@ -28,8 +28,10 @@ restart_command: "sudo systemctl restart {{ app_service }}"
 app_service: "{{ app_name }}.go.service"
 app_runtime_directory: "{{ app_name }}"
 app_unix_socket: "/run/{{ app_name }}/{{ app_name }}.sock"
+# nginx と app が別ホストのときアプリが待つ TCP ポート（main.go の SERVER_APP_PORT）
+app_listen_port: 3000
 
-# --- Nginx（細かい中身は templates/nginx.site.conf.j2）---
+# --- Nginx（細かい中身は templates/nginx.site.conf.j2。upstream 先は inventory から自動）---
 nginx_conf_dest: "/etc/nginx/conf.d/{{ app_name }}.conf"
 
 # --- pprof ---
@@ -72,6 +74,14 @@ mysql_service: mariadb
 mysql_slow_query_time: 0
 slow_log: /var/log/mysql/mariadb-slow.log
 mysql_performance_cnf: /etc/mysql/mariadb.conf.d/99-isucon-performance.cnf
+# env.sh 用（MYSQL_HOST 自体は inventory の db.private_ip から自動）
+mysql_port: 3306
+mysql_user: isucon
+mysql_dbname: "{{ app_name }}"
+mysql_password: isucon
+# env.sh 末尾に足す大会固有の行（任意）
+app_env_extra: |
+  POST_ISUCONDITION_TARGET_BASE_URL="http://isucondition-1.t.isucon.dev"
 mysql_remote_grant_sql: >-
   CREATE USER IF NOT EXISTS 'isucon'@'%' IDENTIFIED BY 'isucon';
   GRANT ALL PRIVILEGES ON *.* TO 'isucon'@'%' WITH GRANT OPTION;
