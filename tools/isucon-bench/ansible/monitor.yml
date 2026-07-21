@@ -1,6 +1,7 @@
 ---
 # monitor_state: on | off
-# netdata / slow query / pprof をまとめて切り替える（個別には切らない前提）
+# netdata / slow query を切り替える。
+# pprof.go は make 側の toggle-pprof → server-sync で置く前提。ここではビルドして反映する。
 - name: 計測系を切り替える
   hosts: all
   gather_facts: false
@@ -23,13 +24,15 @@
       when: netdata_enabled | bool
 
     - name: スロークエリログを制御する
-      ansible.builtin.include_tasks: tasks/db/slow-query.yml
-      vars:
-        slow_query_state: "{{ monitor_state }}"
+      ansible.builtin.command:
+        argv:
+          - "{{ mysql_admin_command }}"
+          - >-
+            --execute={% if monitor_state | bool %}SET GLOBAL long_query_time={{ mysql_slow_query_time }}; SET GLOBAL slow_query_log=1;{% else %}SET GLOBAL slow_query_log=0;{% endif %}
+      become: true
+      changed_when: true
       when: inventory_hostname in groups.get('db', [])
 
-    - name: pprofを制御する
-      ansible.builtin.include_tasks: tasks/app/pprof.yml
-      vars:
-        instrument_state: "{{ monitor_state }}"
+    - name: pprof反映のためアプリをビルドして再起動する
+      ansible.builtin.include_tasks: tasks/app/build.yml
       when: inventory_hostname in groups.get('app', [])

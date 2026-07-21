@@ -1,5 +1,6 @@
 ---
-# ベンチ開始前: DB/nginx/app 再起動、ログ初期化、slow query ON、netdata 起動
+# ベンチ開始前: DB/nginx/app 再起動、ログ初期化
+# slow query / netdata / pprof の ON/OFF は make fleet-enable/disable（monitor.yml）
 - name: ベンチ前にMariaDBを再起動する
   ansible.builtin.include_tasks: tasks/common/services-restart.yml
   vars:
@@ -32,14 +33,6 @@
     service: nginx
   when: inventory_hostname in groups['nginx']
 
-- name: 計測中のnetdataを起動する
-  ansible.builtin.systemd:
-    name: "{{ netdata_service }}"
-    state: started
-    enabled: true
-  become: true
-  when: netdata_enabled | bool
-
 - name: Nginxのaccess logを確認する
   ansible.builtin.stat:
     path: "{{ access_log }}"
@@ -71,10 +64,3 @@
   when:
     - inventory_hostname in groups['db']
     - slow_log_stat.stat.exists | default(false)
-
-- name: MariaDBのスロークエリログを有効にする
-  ansible.builtin.include_tasks: tasks/db/slow-query.yml
-  vars:
-    # YAML の on は boolean になるので必ず文字列で渡す
-    slow_query_state: "on"
-  when: inventory_hostname in groups['db']

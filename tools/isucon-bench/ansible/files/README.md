@@ -22,6 +22,6 @@
 2. リポジトリの Settings → Deploy keys に登録した鍵を使う
 3. メンバーのうち1人の GitHub SSH 鍵を使う（公開鍵がその人の GitHub に登録済みであること）
 
-`make bootstrap` / `make fleet-setup` が全ホストの `~/.ssh/` へ配ります。
+`make bootstrap` が全ホストの `~/.ssh/` へ配ります。
 
 補足: 競技サーバーへ SSH ログインする鍵は別物で、そちらは主催が各メンバーの GitHub 公開鍵を配る想定です。

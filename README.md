@@ -77,17 +77,16 @@ make collect SESSION=20260719-123000
 
 | ターゲット | 用途 |
 | --- | --- |
-| `bootstrap` | ツール導入 + git + 計測系 ON + `collect-backups` |
+| `bootstrap` | ツール導入 + 計測系 ON |
 | `server-sync` | GitHub 指定ブランチを全サーバーへ同期 |
-| `pull` | 最新ベンチ結果 + `collect-backups` を手元へ取得 |
-| `deploy` | server-sync + ビルド/再起動 + `collect-backups` |
-| `fleet-setup` | 計測ツール導入＋計測系 ON + `collect-backups` |
-| `fleet-enable` / `fleet-disable` | 計測系 ON/OFF + `collect-backups` |
-| `mysql-tune` | MariaDB 性能 cnf 反映 + `collect-backups` |
+| `pull` | 最新ベンチ結果 + 設定バックアップを手元へ取得 |
+| `deploy` | server-sync + ビルド/再起動 |
+| `fleet-enable` / `fleet-disable` | 計測系 ON/OFF |
+| `finish` | `fleet-disable` と同じ |
+| `mysql-tune` | MariaDB 性能 cnf 反映 |
 | `collect-backups` | 設定バックアップだけ回収 |
 | `pprof-view` / `netdata-view` | 手元でプロファイル / Netdata を見る |
 | `restart` | 全ホスト OS 再起動（追試用） |
-| `finish` | 最終計測前に計測系を外す（=`fleet-disable`） |
 
 ## 構成
 
@@ -101,9 +100,9 @@ Makefile
     │   ├── setup.yml / deploy.yml / bench.yml / git.yml / monitor.yml / reboot.yml / …
     │   ├── tasks/
     │   │   ├── common/   # packages, github-ssh, topology-facts, services-restart
-    │   │   ├── app/      # packages, systemd, build, pprof
+    │   │   ├── app/      # packages, systemd, build
     │   │   ├── nginx/    # packages(+alp), configure
-    │   │   ├── db/       # packages, performance, slow-query
+    │   │   ├── db/       # packages, performance
     │   │   └── bench/    # prepare, measure, analyze
     │   ├── templates/
     │   └── files/        # GitHub SSH 鍵（gitignore）
