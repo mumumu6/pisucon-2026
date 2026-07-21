@@ -1,17 +1,23 @@
 ---
+# サービス再起動の単一入口。service: nginx | mariadb | app
 - name: Nginxを再起動する
   ansible.builtin.systemd:
     name: nginx
     daemon_reload: true
     state: restarted
+  become: true
+  when: service == 'nginx'
 
 - name: MariaDBを再起動する
   ansible.builtin.systemd:
     name: "{{ mysql_service }}"
     state: restarted
+  become: true
+  when: service == 'mariadb'
 
-- name: Goアプリのsystemd設定を反映する
+- name: アプリを再起動する
   ansible.builtin.systemd:
     name: "{{ app_service }}"
-    daemon_reload: true
     state: restarted
+  become: true
+  when: service == 'app'

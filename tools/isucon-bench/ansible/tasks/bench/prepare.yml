@@ -1,7 +1,9 @@
 ---
 # ベンチ開始前: DB/nginx/app 再起動、ログ初期化、slow query ON、netdata 起動
 - name: ベンチ前にMariaDBを再起動する
-  ansible.builtin.include_tasks: tasks/db/restart.yml
+  ansible.builtin.include_tasks: tasks/common/services-restart.yml
+  vars:
+    service: mariadb
   when: inventory_hostname in groups['db']
 
 - name: デプロイ済みのGitリビジョンを取得する
@@ -21,17 +23,13 @@
   when: inventory_hostname in groups['reporter']
 
 - name: アプリをビルドして再起動する
+  ansible.builtin.include_tasks: tasks/app/build.yml
   when: inventory_hostname in groups['app']
-  block:
-    - name: アプリをビルドする
-      ansible.builtin.include_tasks: tasks/app/build.yml
-    - name: アプリを再起動する
-      ansible.builtin.include_tasks: tasks/app/restart.yml
-      vars:
-        restart_via: command
 
 - name: ベンチ前にNginxを再起動する
-  ansible.builtin.include_tasks: tasks/nginx/restart.yml
+  ansible.builtin.include_tasks: tasks/common/services-restart.yml
+  vars:
+    service: nginx
   when: inventory_hostname in groups['nginx']
 
 - name: 計測中のnetdataを起動する

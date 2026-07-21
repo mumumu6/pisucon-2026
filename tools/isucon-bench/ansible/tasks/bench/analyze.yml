@@ -1,34 +1,118 @@
 ---
-# always 節: 終了時刻確定 → 役割別解析 → 生ログ削除
-- name: 中断時の計測終了時刻を記録する
+# always 節: 役割別解析 → 生ログ削除
+# --- Nginx / alp ---
+- name: Nginxのaccess logを計測結果へコピーする
+  ansible.builtin.copy:
+    src: "{{ access_log }}"
+    dest: "{{ session_dir }}/access.log"
+    remote_src: true
+    owner: "{{ ansible_user }}"
+    mode: "0644"
+  become: true
+  failed_when: false
+  when:
+    - inventory_hostname in groups['nginx']
+    - access_log_stat.stat.exists | default(false)
+
+- name: AlpでNginxのaccess logを解析する
   ansible.builtin.command:
-    argv: [date, +%s]
-  register: fallback_stopped_epoch
+    argv: >-
+      {{ ['alp', access_log_format, '--file', session_dir + '/access.log',
+          '--sort', 'sum', '--reverse']
+         + ((['-m', alp_matching_groups | join(',')] if (alp_matching_groups | default([]) | length) > 0 else [])
+            + (alp_extra_options | default([]))) }}
+  register: alp_result
   changed_when: false
-  when: measurement_stopped_epoch is not defined
-
-- name: 有効な計測終了時刻を選ぶ
-  ansible.builtin.set_fact:
-    effective_stopped_epoch: >-
-      {{ measurement_stopped_epoch.stdout
-         if measurement_stopped_epoch is defined
-         else fallback_stopped_epoch.stdout }}
-
-- name: Nginx結果を解析する
-  ansible.builtin.include_tasks: tasks/bench/analyze-nginx.yml
+  failed_when: false
   when: inventory_hostname in groups['nginx']
 
-- name: DB結果を解析する
-  ansible.builtin.include_tasks: tasks/bench/analyze-db.yml
+- name: Alp解析結果を保存する
+  ansible.builtin.copy:
+    content: "{{ alp_result.stdout | default('No access log data collected.', true) }}\n"
+    dest: "{{ session_dir }}/alp.txt"
+    mode: "0644"
+  when: inventory_hostname in groups['nginx']
+
+# --- DB / pt-query-digest ---
+- name: MariaDBのスロークエリログを計測結果へコピーする
+  ansible.builtin.copy:
+    src: "{{ slow_log }}"
+    dest: "{{ session_dir }}/mysql-slow.log"
+    remote_src: true
+    owner: "{{ ansible_user }}"
+    mode: "0644"
+  become: true
+  failed_when: false
+  when:
+    - inventory_hostname in groups['db']
+    - slow_log_stat.stat.exists | default(false)
+
+- name: 解析対象のスロークエリログを確認する
+  ansible.builtin.stat:
+    path: "{{ session_dir }}/mysql-slow.log"
+  register: session_slow_log_stat
   when: inventory_hostname in groups['db']
 
-- name: アプリ結果を解析する
-  ansible.builtin.include_tasks: tasks/bench/analyze-app.yml
+- name: MariaDBのスロークエリログを解析する
+  ansible.builtin.command:
+    argv: >-
+      {{ ['timeout', pt_query_digest_timeout_seconds | default(120) | string,
+          'pt-query-digest', '--limit', '20'] + pt_query_digest_options +
+         [session_dir + '/mysql-slow.log'] }}
+  register: slow_query_result
+  changed_when: false
+  failed_when: false
+  when:
+    - inventory_hostname in groups['db']
+    - session_slow_log_stat.stat.exists | default(false)
+    - (session_slow_log_stat.stat.size | default(0)) > 0
+
+- name: スロークエリ解析結果を保存する
+  ansible.builtin.copy:
+    content: >-
+      {{ slow_query_result.stdout
+         if (slow_query_result is defined
+             and not (slow_query_result.skipped | default(false))
+             and (slow_query_result.stdout | default('') | length) > 0)
+         else (
+           'No slow-query data collected (log empty or slow_query_log was OFF).'
+           if (session_slow_log_stat.stat.size | default(0)) == 0
+           else 'No slow-query data collected.'
+         ) }}{{ '\n' }}
+    dest: "{{ session_dir }}/pt-query-digest.txt"
+    mode: "0644"
+  when: inventory_hostname in groups['db']
+
+# --- App / pprof ---
+- name: 取得したCPUプロファイルを確認する
+  ansible.builtin.stat:
+    path: "{{ session_dir }}/cpu.pprof"
+  register: cpu_profile_stat
   when: inventory_hostname in groups['app']
 
-- name: Netdata結果を解析する
-  ansible.builtin.include_tasks: tasks/bench/analyze-netdata.yml
-  when: netdata_enabled | bool
+- name: 累積CPUプロファイルを解析する
+  ansible.builtin.command:
+    argv:
+      - go
+      - tool
+      - pprof
+      - -top
+      - -cum
+      - "{{ session_dir }}/cpu.pprof"
+  register: pprof_top_result
+  changed_when: false
+  failed_when: false
+  when:
+    - inventory_hostname in groups['app']
+    - cpu_profile_stat.stat.exists | default(false)
+    - cpu_profile_stat.stat.size | default(0) > 0
+
+- name: CPUプロファイル解析結果を保存する
+  ansible.builtin.copy:
+    content: "{{ pprof_top_result.stdout | default('No CPU profile collected.', true) }}\n"
+    dest: "{{ session_dir }}/pprof.txt"
+    mode: "0644"
+  when: inventory_hostname in groups['app']
 
 - name: 解析後に生ログを削除する
   ansible.builtin.file:
@@ -37,9 +121,3 @@
   loop:
     - "{{ session_dir }}/access.log"
     - "{{ session_dir }}/mysql-slow.log"
-
-- name: 集計後にnetdataの生レスポンスを削除する
-  ansible.builtin.file:
-    path: "{{ session_dir }}/netdata"
-    state: absent
-  when: netdata_enabled | bool

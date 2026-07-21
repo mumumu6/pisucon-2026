@@ -1,6 +1,7 @@
 ---
 # MariaDB の設定をまとめて反映する（slow log 置き場 / 性能 cnf / リモート権限）
 # bind-address は常に 0.0.0.0、リモート GRANT も常に行う（1台構成でも害は少ない）。
+# cnf が変わったときだけ末尾で再起動する（handlers は使わない）。
 - name: MariaDBの設定を反映する
   block:
     - name: スローログ用の置き場を用意する
@@ -29,7 +30,13 @@
         group: root
         mode: "0644"
         backup: true
-      notify: MariaDBを再起動する
+      register: mysql_performance_cnf_result
+
+    - name: MariaDBを再起動する
+      ansible.builtin.include_tasks: tasks/common/services-restart.yml
+      vars:
+        service: mariadb
+      when: mysql_performance_cnf_result is changed
 
     # cnf ではユーザー権限は書けない。初期は localhost だけなので '%' も許可する。
     - name: リモート接続用ユーザーを許可する

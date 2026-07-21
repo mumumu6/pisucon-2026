@@ -1,6 +1,6 @@
 ---
 # monitor_state: on | off
-# netdata / slow query / pprof をまとめて切り替える
+# netdata / slow query / pprof をまとめて切り替える（個別には切らない前提）
 - name: 計測系を切り替える
   hosts: all
   gather_facts: false
@@ -14,5 +14,22 @@
       run_once: true
 
   tasks:
-    - name: 計測系を切り替える
-      ansible.builtin.include_tasks: tasks/monitor/toggle.yml
+    - name: Netdataを制御する
+      ansible.builtin.systemd:
+        name: "{{ netdata_service }}"
+        state: "{{ 'started' if monitor_state | bool else 'stopped' }}"
+        enabled: "{{ monitor_state | bool }}"
+      become: true
+      when: netdata_enabled | bool
+
+    - name: スロークエリログを制御する
+      ansible.builtin.include_tasks: tasks/db/slow-query.yml
+      vars:
+        slow_query_state: "{{ monitor_state }}"
+      when: inventory_hostname in groups.get('db', [])
+
+    - name: pprofを制御する
+      ansible.builtin.include_tasks: tasks/app/pprof.yml
+      vars:
+        instrument_state: "{{ monitor_state }}"
+      when: inventory_hostname in groups.get('app', [])

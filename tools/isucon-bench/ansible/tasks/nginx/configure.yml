@@ -1,6 +1,8 @@
 ---
-# Nginx 周りの設定をまとめて反映する。
-# systemd drop-in は現状 LimitNOFILE 程度。本体設定は nginx.conf 一本。
+# Nginx 設定を反映する。
+# nginx_config_scope: full（既定）= systemd drop-in + 既定サイト削除 + nginx.conf
+#                     site       = nginx.conf のみ（make deploy 用）
+# 再起動は末尾で1回だけ（handlers は使わない）。
 - name: Nginxの設定を反映する
   become: true
   block:
@@ -14,8 +16,8 @@
         owner: root
         group: root
         mode: "0755"
+      when: (nginx_config_scope | default('full')) == 'full'
 
-    # drop-in の中身は今のところ LimitNOFILE くらい
     - name: systemd drop-in を反映する
       ansible.builtin.template:
         src: templates/nginx.service-override.conf.j2
@@ -24,13 +26,13 @@
         group: root
         mode: "0644"
         backup: true
-      notify: Nginxを再起動する
+      when: (nginx_config_scope | default('full')) == 'full'
 
     - name: 既定サイトを外す
       ansible.builtin.file:
         path: /etc/nginx/sites-enabled/default
         state: absent
-      notify: Nginxを再起動する
+      when: (nginx_config_scope | default('full')) == 'full'
 
     - name: nginx.conf を反映する
       ansible.builtin.template:
@@ -47,5 +49,7 @@
       changed_when: false
 
     - name: Nginxを再起動する
-      ansible.builtin.include_tasks: tasks/nginx/restart.yml
+      ansible.builtin.include_tasks: tasks/common/services-restart.yml
+      vars:
+        service: nginx
       when: restart_nginx | default(true)

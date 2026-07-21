@@ -1,10 +1,8 @@
 ---
-# server-sync 後のデプロイ。app/deploy と nginx/site を再利用。
+# make deploy: server-sync 後に systemd・ビルド・nginx を反映する。
 - name: アプリをビルド・再起動し、関連設定を反映する
   hosts: app:nginx
   gather_facts: false
-  handlers:
-    - ansible.builtin.import_tasks: handlers/main.yml
 
   pre_tasks:
     - name: ビルド設定を検証する
@@ -24,12 +22,19 @@
       when: inventory_hostname in groups['app']
 
   tasks:
-    - name: アプリをデプロイする
-      ansible.builtin.include_tasks: tasks/app/deploy.yml
+    - name: アプリのsystemd設定を反映する
+      ansible.builtin.include_tasks: tasks/app/systemd.yml
+      vars:
+        force_daemon_reload: true
+      when: inventory_hostname in groups['app']
+
+    - name: アプリをビルドして再起動する
+      ansible.builtin.include_tasks: tasks/app/build.yml
       when: inventory_hostname in groups['app']
 
     - name: Nginxのサイト設定を反映する
-      ansible.builtin.include_tasks: tasks/nginx/site.yml
+      ansible.builtin.include_tasks: tasks/nginx/configure.yml
       vars:
+        nginx_config_scope: site
         restart_nginx: true
       when: inventory_hostname in groups['nginx']

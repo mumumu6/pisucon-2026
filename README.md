@@ -57,7 +57,7 @@ make bench
 ```bash
 make help
 make server-sync     # 全サーバーへ git sync
-make build           # server-sync + systemd + ビルド + app/nginx 再起動
+make deploy          # server-sync + systemd + ビルド + app/nginx 再起動
 make pull            # 最新ベンチ結果 + 設定バックアップを手元へ
 make bench           # 計測・解析・回収
 make bench PUBLISH=true
@@ -70,7 +70,7 @@ make collect SESSION=20260719-123000
 1. server-sync → app ビルド・再起動、nginx / MariaDB 再起動
 2. ログ初期化、pprof 武装
 3. ブラウザで公式ベンチ開始を待つ → スコア入力
-4. alp / pt-query-digest / pprof 解析（メトリクス・ログは Grafana）
+4. alp / pt-query-digest / pprof 解析
 5. `log/<SESSION>/` へ回収、`REPORT.md` 生成
 
 ## Make ターゲット一覧
@@ -80,16 +80,14 @@ make collect SESSION=20260719-123000
 | `bootstrap` | ツール導入 + git + 計測系 ON + `collect-backups` |
 | `server-sync` | GitHub 指定ブランチを全サーバーへ同期 |
 | `pull` | 最新ベンチ結果 + `collect-backups` を手元へ取得 |
-| `build` | server-sync + ビルド/再起動 + `collect-backups` |
+| `deploy` | server-sync + ビルド/再起動 + `collect-backups` |
 | `fleet-setup` | 計測ツール導入＋計測系 ON + `collect-backups` |
 | `fleet-enable` / `fleet-disable` | 計測系 ON/OFF + `collect-backups` |
 | `mysql-tune` | MariaDB 性能 cnf 反映 + `collect-backups` |
 | `collect-backups` | 設定バックアップだけ回収 |
-| `pprof-view` / `grafana-view` | 手元でプロファイル / Grafana を見る |
+| `pprof-view` / `netdata-view` | 手元でプロファイル / Netdata を見る |
 | `restart` | 全ホスト OS 再起動（追試用） |
 | `finish` | 最終計測前に計測系を外す（=`fleet-disable`） |
-
-観測スタック（`observe`）は reporter に Grafana + Prometheus + Loki、各ホストに node_exporter / Alloy（+ DB に mysqld_exporter）です。`make grafana-view` で `http://localhost:3000` を開きます。
 
 ## 構成
 
@@ -100,24 +98,21 @@ Makefile
     │   ├── ansible.cfg
     │   ├── inventory.yml
     │   ├── group_vars/all.yml      # 大会変数は先頭セクション
-    │   ├── setup.yml / build.yml / bench.yml / …  # 薄い playbook（組み立てだけ）
-    │   ├── handlers/main.yml
+    │   ├── setup.yml / deploy.yml / bench.yml / git.yml / monitor.yml / reboot.yml / …
     │   ├── tasks/
-    │   │   ├── common/   # packages, github-ssh, git-sync, fleet-services
-    │   │   ├── app/      # packages, systemd, build, restart, deploy, pprof
-    │   │   ├── nginx/    # packages, alp, configure, site, restart
-    │   │   ├── db/       # packages, performance, restart, slow-query
-    │   │   ├── observe/  # Grafana/Prometheus/Loki + exporters/Alloy
-    │   │   ├── monitor/  # toggle（observe + slow query + pprof）
-    │   │   └── bench/    # prepare, measure, analyze-*
+    │   │   ├── common/   # packages, github-ssh, topology-facts, services-restart
+    │   │   ├── app/      # packages, systemd, build, pprof
+    │   │   ├── nginx/    # packages(+alp), configure
+    │   │   ├── db/       # packages, performance, slow-query
+    │   │   └── bench/    # prepare, measure, analyze
     │   ├── templates/
     │   └── files/        # GitHub SSH 鍵（gitignore）
     └── scripts/
 ```
 
-役割ごと・再利用単位に `tasks/` を分割しています。例えばアプリのビルド＋再起動は
-`tasks/app/deploy.yml` にまとめ、`build.yml` と `bench.yml` の両方から使います。
-systemd / nginx サイト反映も同様に共有です。
+入口はルートの playbook、再利用ロジックは `tasks/` に置きます。
+アプリのビルド＋再起動は常に `tasks/app/build.yml`、サービス再起動は常に
+`tasks/common/services-restart.yml` を使います。
 
 ## Ansible の確認
 

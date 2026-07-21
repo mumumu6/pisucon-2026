@@ -8,7 +8,6 @@
     groups['nginx']    … alp.txt を持つホスト
     groups['db']       … pt-query-digest.txt を持つホスト
     groups['app']      … pprof.txt を持つホスト
-    groups['all']      … netdata.txt を持つホスト
 #}
 # ISUCON benchmark report
 
@@ -38,14 +37,6 @@
 
 ```text
 {{ lookup('ansible.builtin.file', local_session_dir + '/' + host + '/pprof.txt', errors='ignore') | default('No CPU profile collected.', true) }}
-```
-
-{% endfor %}
-{% for host in groups['all'] %}
-## netdata: {{ host }}
-
-```text
-{{ lookup('ansible.builtin.file', local_session_dir + '/' + host + '/netdata.txt', errors='ignore') | default('No netdata summary collected.', true) }}
 ```
 
 {% endfor %}

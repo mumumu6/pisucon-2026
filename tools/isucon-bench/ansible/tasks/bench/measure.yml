@@ -1,11 +1,5 @@
 ---
 # pprof 武装 → ブラウザベンチ待ち → スコア保存
-- name: 計測開始時刻を記録する
-  ansible.builtin.command:
-    argv: [date, +%s]
-  register: benchmark_started_epoch
-  changed_when: false
-
 - name: アプリホストでCPUプロファイル取得を開始する
   ansible.builtin.command:
     argv:
@@ -46,12 +40,6 @@
     dest: "{{ session_dir }}/score.txt"
     mode: "0644"
   when: inventory_hostname == groups['reporter'][0]
-
-- name: 計測終了時刻を記録する
-  ansible.builtin.command:
-    argv: [date, +%s]
-  register: measurement_stopped_epoch
-  changed_when: false
 
 - name: CPUプロファイル取得の完了を待つ
   ansible.builtin.async_status:

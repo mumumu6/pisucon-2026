@@ -1,6 +1,6 @@
 ---
 # 役割ごとのセットアップを組み立てる薄い playbook。
-# 実体は tasks/{common,app,nginx,db,monitor}/ を参照。
+# 実体は tasks/{common,app,nginx,db}/ を参照。
 - name: ISUCON用の計測ツールを導入する
   hosts: all
   become: true
@@ -8,8 +8,6 @@
     alp_arch_map:
       x86_64: amd64
       aarch64: arm64
-  handlers:
-    - ansible.builtin.import_tasks: handlers/main.yml
   tasks:
     - name: 共通パッケージを導入する
       tags: [common, packages]
@@ -46,17 +44,22 @@
       tags: [nginx]
       when: inventory_hostname in groups['nginx']
       block:
-        - name: Nginx用パッケージを導入する
-          tags: [packages]
+        - name: Nginx用パッケージとAlpを導入する
+          tags: [packages, alp]
           ansible.builtin.include_tasks: tasks/nginx/packages.yml
-        - name: Alpを導入する
-          tags: [alp]
-          ansible.builtin.include_tasks: tasks/nginx/alp.yml
         - name: Nginxの設定を反映する
           ansible.builtin.include_tasks: tasks/nginx/configure.yml
           vars:
+            nginx_config_scope: full
             restart_nginx: true
 
     - name: 役割に合わせてサービスを起動または停止する
       tags: [services]
-      ansible.builtin.include_tasks: tasks/common/fleet-services.yml
+      ansible.builtin.systemd:
+        name: "{{ item.name }}"
+        state: "{{ 'started' if (item.roles | intersect(group_names) | length) > 0 else 'stopped' }}"
+        enabled: "{{ (item.roles | intersect(group_names) | length) > 0 }}"
+      loop: "{{ fleet_services }}"
+      loop_control:
+        label: "{{ item.name }}"
+      failed_when: false

@@ -24,7 +24,6 @@ create_github_issue: true
 
 # --- アプリ ---
 build_command: "go build -o {{ app_name }} ."
-restart_command: "sudo systemctl restart {{ app_service }}"
 app_service: "{{ app_name }}.go.service"
 app_runtime_directory: "{{ app_name }}"
 app_unix_socket: "/run/{{ app_name }}/{{ app_name }}.sock"
@@ -87,20 +86,12 @@ mysql_slow_query_time: 0
 slow_log: /var/log/mysql/mariadb-slow.log
 mysql_performance_cnf: /etc/mysql/mariadb.conf.d/99-isucon-performance.cnf
 # DB 接続（リモート GRANT 用。env.sh の MYSQL_HOST は Ansible では触らない）
-mysql_port: 3306
 mysql_user: isucon
-mysql_dbname: "{{ app_name }}"
 mysql_password: isucon
 # リモート GRANT は tasks/db/performance.yml が mysql_user / mysql_password から自動生成
 pt_query_digest_timeout_seconds: 180
 pt_query_digest_options: []
 
-# --- netdata ---
+# --- netdata（ライブ確認用。ベンチ結果への集計はしない）---
 netdata_enabled: true
 netdata_service: netdata
-netdata_url: http://127.0.0.1:19999
-netdata_charts:
-  - system.cpu
-  - system.ram
-  - system.load
-  - system.io

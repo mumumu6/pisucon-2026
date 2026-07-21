@@ -66,7 +66,7 @@ if [[ "$truncated" == true ]]; then
     rm -f "$cmt"
     unset cmt
   done < <(find "$session" -mindepth 2 -maxdepth 2 -type f \
-    \( -name 'alp.txt' -o -name 'pt-query-digest.txt' -o -name 'pprof.txt' -o -name 'netdata.txt' \) | sort)
+    \( -name 'alp.txt' -o -name 'pt-query-digest.txt' -o -name 'pprof.txt' \) | sort)
 fi
 
 echo "GitHub Issue created: $issue_url"

@@ -17,10 +17,7 @@
   when: not (instrument_state | bool)
 
 - name: pprof変更をアプリへ反映する
-  ansible.builtin.command:
-    argv: [/bin/bash, -lc, "{{ build_command }} && {{ restart_command }}"]
-    chdir: "{{ app_working_dir }}"
-  changed_when: true
+  ansible.builtin.include_tasks: tasks/app/build.yml
   when: >-
     (pprof_source_on.changed | default(false)) or
     (pprof_source_off.changed | default(false))

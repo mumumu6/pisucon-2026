@@ -3,8 +3,6 @@
 - name: Git管理されたMariaDB性能設定を反映する
   hosts: db
   become: true
-  handlers:
-    - ansible.builtin.import_tasks: handlers/main.yml
   tasks:
     - name: MariaDB性能設定を反映する
       ansible.builtin.include_tasks: tasks/db/performance.yml
