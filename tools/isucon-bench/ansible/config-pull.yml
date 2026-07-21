@@ -1,0 +1,247 @@
+---
+# make bootstrap の最初に呼ぶ。サーバーの素の設定を repo の server-config/ へ取り込み、
+# 計測用の配線（ltsv / slow log）とチューニング候補（コメントアウト）を書き足して commit / push する。
+# 取り込み済みのファイルには一切触らない（手元の編集を上書きしない）。
+#
+# git 履歴: 「素の状態」→「計測の配線」の2コミットが積まれる。
+# 以後は server-config/ を直接編集し make deploy / make mysql-tune で反映する。
+- name: Nginx設定を取り込む
+  hosts: nginx[0]
+  become: true
+  gather_facts: false
+  tasks:
+    - name: 取り込み済みか確認する
+      ansible.builtin.stat:
+        path: "{{ server_config_root }}/nginx.conf"
+      delegate_to: localhost
+      become: false
+      register: pulled_nginx_conf
+
+    - name: nginx.conf とサイト設定を取り込む
+      when: not pulled_nginx_conf.stat.exists
+      block:
+        - name: サーバー側に .orig を残す
+          ansible.builtin.copy:
+            src: "{{ nginx_conf_dest }}"
+            dest: "{{ nginx_conf_dest }}.orig"
+            remote_src: true
+            force: false
+            mode: preserve
+
+        - name: nginx.conf を手元へ取得する
+          ansible.builtin.fetch:
+            src: "{{ nginx_conf_dest }}"
+            dest: "{{ server_config_root }}/nginx.conf"
+            flat: true
+
+        - name: サイト設定を探す
+          ansible.builtin.find:
+            paths: /etc/nginx/sites-enabled
+            file_type: any
+          register: nginx_site_files
+
+        - name: サイト設定を手元へ取得する
+          ansible.builtin.fetch:
+            src: "{{ item.path }}"
+            dest: "{{ server_config_root }}/sites/{{ item.path | basename }}"
+            flat: true
+          loop: "{{ nginx_site_files.files }}"
+          loop_control:
+            label: "{{ item.path }}"
+
+- name: MariaDB設定を取り込む
+  hosts: db[0]
+  become: true
+  gather_facts: false
+  tasks:
+    - name: 取り込み済みか確認する
+      ansible.builtin.stat:
+        path: "{{ server_config_root }}/50-server.cnf"
+      delegate_to: localhost
+      become: false
+      register: pulled_mysql_cnf
+
+    - name: 50-server.cnf を取り込む
+      when: not pulled_mysql_cnf.stat.exists
+      block:
+        - name: サーバー側に .orig を残す
+          ansible.builtin.copy:
+            src: "{{ mysql_server_cnf }}"
+            dest: "{{ mysql_server_cnf }}.orig"
+            remote_src: true
+            force: false
+            mode: preserve
+
+        - name: 50-server.cnf を手元へ取得する
+          ansible.builtin.fetch:
+            src: "{{ mysql_server_cnf }}"
+            dest: "{{ server_config_root }}/50-server.cnf"
+            flat: true
+
+- name: 配線を書き足して commit する
+  hosts: nginx[0]
+  gather_facts: false
+  become: false
+  vars:
+    nginx_pulled_now: "{{ not pulled_nginx_conf.stat.exists }}"
+    mysql_pulled_now: "{{ not hostvars[groups['db'][0]].pulled_mysql_cnf.stat.exists }}"
+  tasks:
+    - name: 素の状態を commit する
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cd "{{ repo_root }}"
+        git add -A -- server-config
+        if git diff --cached --quiet -- server-config; then
+          echo unchanged
+        else
+          git commit -m "server-config: サーバーの素の設定を取り込み" -- server-config
+          echo committed
+        fi
+      args:
+        executable: /bin/bash
+      delegate_to: localhost
+      register: pristine_commit
+      changed_when: "'committed' in pristine_commit.stdout"
+
+    - name: nginx.conf に配線を書き足す
+      when: nginx_pulled_now | bool
+      delegate_to: localhost
+      block:
+        - name: ltsv 設定の有無を確認する
+          ansible.builtin.command:
+            argv: [grep, -q, "log_format ltsv", "{{ server_config_root }}/nginx.conf"]
+          register: nginx_ltsv_check
+          changed_when: false
+          failed_when: nginx_ltsv_check.rc not in [0, 1]
+
+        - name: 配線とチューニング候補を書き足す
+          when: nginx_ltsv_check.rc != 0
+          block:
+            - name: 全体チューニング候補を追記する
+              ansible.builtin.blockinfile:
+                path: "{{ server_config_root }}/nginx.conf"
+                marker: "# {mark} isucon-bench: main"
+                insertbefore: '^events\s*\{'
+                block: |
+                  # ---- チューニング: worker あたりの fd 上限。worker_connections を増やすならセットで外す ----
+                  # worker_rlimit_nofile 65535;
+
+            - name: events チューニング候補を追記する
+              ansible.builtin.blockinfile:
+                path: "{{ server_config_root }}/nginx.conf"
+                marker: "    # {mark} isucon-bench: events"
+                insertafter: '^events\s*\{'
+                block: |2
+                      # ---- チューニング: worker あたりの同時接続数（既定 768）。並列が増えて足りなくなったら外す ----
+                      # worker_connections 65535;
+                      # ---- チューニング: accept を一度に複数処理（接続ラッシュに強くなる）----
+                      # multi_accept on;
+
+            - name: ltsv 配線と http チューニング候補を追記する
+              ansible.builtin.blockinfile:
+                path: "{{ server_config_root }}/nginx.conf"
+                marker: "    # {mark} isucon-bench: http"
+                insertafter: '^http\s*\{'
+                block: |2
+                      # ---- 配線: alp 用 ltsv ログ（消すと make bench の解析が壊れる）----
+                      log_format ltsv "time:$time_local"
+                                      "\thost:$remote_addr"
+                                      "\tforwardedfor:$http_x_forwarded_for"
+                                      "\treq:$request"
+                                      "\tstatus:$status"
+                                      "\tmethod:$request_method"
+                                      "\turi:$request_uri"
+                                      "\tsize:$body_bytes_sent"
+                                      "\treferer:$http_referer"
+                                      "\tua:$http_user_agent"
+                                      "\treqtime:$request_time"
+                                      "\tapptime:$upstream_response_time"
+                                      "\tvhost:$host";
+
+                      # ---- チューニング: nginx→app のコネクション使い回し ----
+                      # サイト設定側の proxy_pass を upstream 名に変え、以下を有効にする。
+                      # proxy_http_version 1.1; proxy_set_header Connection ""; もセットで必要。
+                      # unix socket 化はさらに速い（app 側 override.conf の SERVER_APP_SOCK とセット）。
+                      # upstream app {
+                      #     server 127.0.0.1:3000;
+                      #     # server unix:{{ app_unix_socket }};
+                      #     keepalive 256;
+                      # }
+
+                      # ---- チューニング: JSON レスポンス圧縮（帯域ネックのとき。CPU とトレード）----
+                      # gzip on;
+                      # gzip_comp_level 1;
+                      # gzip_min_length 1024;
+                      # gzip_types application/json;
+                      # gzip_vary on;
+
+                      # ---- チューニング: 大きい POST ボディをメモリで受ける（ディスク書き込み回避）----
+                      # client_body_buffer_size 256k;
+
+                      # ---- チューニング: 静的ファイルのブラウザキャッシュはサイト設定の server ブロック側で ----
+                      # location ^~ /assets/ { access_log off; expires 1y; add_header Cache-Control "public, immutable"; }
+
+            - name: access_log を ltsv 形式にする
+              ansible.builtin.replace:
+                path: "{{ server_config_root }}/nginx.conf"
+                # 「access_log <パス>;」「access_log <パス> main;」の両方を ltsv に置き換える
+                regexp: '^(\s*access_log\s+{{ access_log | regex_escape() }})(\s+\w+)?\s*;'
+                replace: '\1 ltsv;'
+
+    - name: 50-server.cnf に配線を書き足す
+      when: mysql_pulled_now | bool
+      delegate_to: localhost
+      ansible.builtin.blockinfile:
+        path: "{{ server_config_root }}/50-server.cnf"
+        marker: "# {mark} isucon-bench"
+        block: |
+          [mysqld]
+          # ---- 配線: slow query 計測（make bench の pt-query-digest が読む。on/off は monitor が制御）----
+          slow_query_log = 1
+          slow_query_log_file = {{ slow_log }}
+          long_query_time = {{ mysql_slow_query_time }}
+          log_output = FILE
+          # ---- 配線: DB 分離時に他ホストから接続を受ける（1台構成でも無害。同名キーは後勝ち）----
+          bind-address = 0.0.0.0
+
+          # ---- チューニング: InnoDB のメインキャッシュ。DB 機の空きメモリの 6〜8 割。まず最初に試す価値あり ----
+          # innodb_buffer_pool_size = 2G
+          # innodb_buffer_pool_instances = 2
+
+          # ---- チューニング: COMMIT ごとの fsync をやめ約1秒ごとに（書き込みが多いと大きく効く。電源断で直近1秒喪失）----
+          # innodb_flush_log_at_trx_commit = 2
+
+          # ---- チューニング: バイナリログを切って I/O 削減（レプリカを作らない前提）----
+          # skip-log-bin
+
+          # ---- チューニング: redo ログを大きくして checkpoint 頻度を下げる ----
+          # innodb_log_buffer_size = 64M
+          # innodb_log_file_size = 512M
+
+          # ---- チューニング: OS ページキャッシュとの二重化を避ける ----
+          # innodb_flush_method = O_DIRECT
+
+          # ---- チューニング: dirty page 書き出しペース（NVMe なら高め）----
+          # innodb_io_capacity = 2000
+          # innodb_io_capacity_max = 4000
+
+          # ---- チューニング: 最大同時接続数（Too many connections が出たら）----
+          # max_connections = 1000
+
+    - name: 配線を commit して push する
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cd "{{ repo_root }}"
+        git add -A -- server-config
+        if git diff --cached --quiet -- server-config; then
+          echo unchanged
+        else
+          git commit -m "server-config: 計測用の配線とチューニング候補を追記" -- server-config
+          echo committed
+        fi
+        git push || echo "[warn] git push に失敗しました。手動で push してください。"
+      args:
+        executable: /bin/bash
+      delegate_to: localhost
+      register: wiring_commit
+      changed_when: "'committed' in wiring_commit.stdout"
