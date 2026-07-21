@@ -30,6 +30,7 @@ sudo apt install -y ansible jq git gh
 
 MariaDB は構成によらず `bind-address=0.0.0.0` + リモート GRANT。  
 `env.sh` は例年どおり systemd の `EnvironmentFile` が読む。Ansible では書き換えないので、DB 分離時は必ず手で直す。
+
 ```bash
 make bootstrap
 make bench
