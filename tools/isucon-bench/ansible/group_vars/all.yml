@@ -74,14 +74,11 @@ mysql_service: mariadb
 mysql_slow_query_time: 0
 slow_log: /var/log/mysql/mariadb-slow.log
 mysql_performance_cnf: /etc/mysql/mariadb.conf.d/99-isucon-performance.cnf
-# DB 接続（GRANT 用。既存 env.sh があれば MYSQL_HOST だけ触る。無ければ下記 + app_env_extra で生成）
+# DB 接続（GRANT 用。env.sh の MYSQL_* はサーバー配布を正とし、Ansible は MYSQL_HOST だけ触る）
 mysql_port: 3306
 mysql_user: isucon
 mysql_dbname: "{{ app_name }}"
 mysql_password: isucon
-# env.sh が無いときに作る大会固有行（任意。既存 env.sh がある場合は触らない）
-app_env_extra: |
-  POST_ISUCONDITION_TARGET_BASE_URL="http://isucondition-1.t.isucon.dev"
 # リモート GRANT は tasks/db/performance.yml が mysql_user / mysql_password から自動生成
 pt_query_digest_timeout_seconds: 180
 pt_query_digest_options: []

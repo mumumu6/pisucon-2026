@@ -28,7 +28,7 @@ sudo apt install -y ansible jq git gh
 | `env.sh` の `MYSQL_HOST` のみ | `127.0.0.1` | db の `private_ip` |
 
 MariaDB は構成によらず `bind-address=0.0.0.0` + リモート GRANT。  
-`env.sh` はサーバー配布があればそれを正とし、`MYSQL_HOST=` だけ書き換える。無ければ最小の `env.sh` を作り、systemd の `EnvironmentFile` で渡す。
+`env.sh` は例年サーバー初期配布＋systemd の `EnvironmentFile` 前提。Ansible は既存の `MYSQL_HOST=` だけ書き換える（無ければ作らない）。
 
 ```bash
 make bootstrap
