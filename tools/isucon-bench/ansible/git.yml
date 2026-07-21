@@ -25,7 +25,3 @@
     - name: リポジトリを同期する
       ansible.builtin.include_tasks: tasks/common/git-sync.yml
 
-    # git sync で env.sh が戻っても、MYSQL_HOST だけ inventory に合わせ直す
-    - name: MYSQL_HOST を inventory から合わせる
-      ansible.builtin.include_tasks: tasks/app/env.yml
-      when: inventory_hostname in groups.get('app', [])

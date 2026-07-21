@@ -30,8 +30,6 @@
           ansible.builtin.include_tasks: tasks/app/systemd.yml
           vars:
             force_daemon_reload: true
-        - name: MYSQL_HOST を inventory から合わせる
-          ansible.builtin.include_tasks: tasks/app/env.yml
 
     - name: DB役割をセットアップする
       tags: [db]

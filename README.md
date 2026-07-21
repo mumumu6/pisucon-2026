@@ -19,16 +19,15 @@ sudo apt install -y ansible jq git gh
 4. **GitHub 用 SSH 鍵（デプロイ鍵）**を `tools/isucon-bench/ansible/files/github_id_ed25519[.pub]` に配置（gitignore 済み）  
    → サーバーから private リポジトリを pull するための鍵。**チームで1組あればよい**（誰か1人の鍵でOK）。詳細は `tools/isucon-bench/ansible/files/README.md`
 
-役割は `inventory.yml` のグループと `private_ip` で決まる。接続先は Ansible が自動で埋める:
+役割は `inventory.yml` のグループと `private_ip` で決まる。nginx↔app の接続先は Ansible が自動で埋める:
 
 | 箇所 | 同居 | 分離 |
 | --- | --- | --- |
 | nginx → app | unix socket | `private_ip:app_listen_port`（app 複数なら全部） |
 | app listen | `SERVER_APP_SOCK` | `SERVER_APP_PORT` |
-| `env.sh` の `MYSQL_HOST` のみ | `127.0.0.1` | db の `private_ip` |
 
 MariaDB は構成によらず `bind-address=0.0.0.0` + リモート GRANT。  
-`env.sh` はサーバー配布を正とし、あれば `MYSQL_HOST=` だけ書き換え（無ければ作らない）。systemd override に `EnvironmentFile` を足して、unit 側に無い年でも読めるようにする。
+`env.sh`（`MYSQL_HOST` など）は **Ansible では触らない**。DB を別ホストにするときはサーバー上の `~/env.sh` を手で直す（例年どおり systemd の `EnvironmentFile` が読む）。
 
 ```bash
 make bootstrap

@@ -74,7 +74,7 @@ mysql_service: mariadb
 mysql_slow_query_time: 0
 slow_log: /var/log/mysql/mariadb-slow.log
 mysql_performance_cnf: /etc/mysql/mariadb.conf.d/99-isucon-performance.cnf
-# DB 接続（GRANT 用。env.sh の MYSQL_* はサーバー配布を正とし、Ansible は MYSQL_HOST だけ触る）
+# DB 接続（リモート GRANT 用。env.sh の MYSQL_HOST は Ansible では触らない）
 mysql_port: 3306
 mysql_user: isucon
 mysql_dbname: "{{ app_name }}"

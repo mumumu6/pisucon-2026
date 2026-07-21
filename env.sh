@@ -1,5 +1,5 @@
-# サーバー初期配布の env.sh（例年ここにある。systemd の EnvironmentFile が読む）。
-# Ansible は MYSQL_HOST= の行だけ inventory に合わせて書き換える（無い場合は作らない）。
+# サーバー初期配布の env.sh（systemd の EnvironmentFile が読む）。
+# Ansible は触らない。DB を別ホストにするときだけ MYSQL_HOST を手で直す。
 MYSQL_HOST="127.0.0.1"
 MYSQL_PORT=3306
 MYSQL_USER=isucon
