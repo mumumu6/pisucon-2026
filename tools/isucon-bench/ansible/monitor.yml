@@ -1,6 +1,7 @@
 ---
 # monitor_state: on | off
-- name: netdata と slow query log を切り替える
+# netdata / slow query / pprof をまとめて切り替える
+- name: 計測系を切り替える
   hosts: all
   gather_facts: false
   pre_tasks:

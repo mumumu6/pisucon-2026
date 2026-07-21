@@ -37,7 +37,7 @@ create_github_issue: true
 # --- アプリのビルド / systemd ---
 # アプリバイナリを作るシェルコマンド（app_working_dir で実行）
 build_command: "go build -o {{ app_name }} ."
-# アプリ再起動コマンド（bench / instrument から呼ぶ）
+# アプリ再起動コマンド（bench / monitor から呼ぶ）
 restart_command: "sudo systemctl restart {{ app_service }}"
 # systemd ユニット名（例: isucondition.go.service）
 app_service: "{{ app_name }}.go.service"

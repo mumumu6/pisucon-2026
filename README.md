@@ -67,13 +67,12 @@ make collect SESSION=20260719-123000
 | ターゲット | 用途 |
 | --- | --- |
 | `bootstrap` | ツール導入 + git + pprof ON + 設定バックアップ回収 |
-| `fleet-setup` | 計測ツールだけ導入 |
-| `fleet-enable` / `fleet-disable` | netdata + slow query の ON/OFF |
+| `fleet-setup` | 計測ツール導入＋計測系 ON |
+| `fleet-enable` / `fleet-disable` | 計測系（netdata / slow query / pprof）の ON/OFF |
 | `mysql-tune` | MariaDB 性能 cnf 反映 |
-| `instrument-on` / `off` | pprof 配置/削除 |
 | `pprof-view` / `netdata-view` | 手元でプロファイル / Netdata を見る |
 | `restart` | 全ホスト OS 再起動（追試用） |
-| `finish` | 最終計測前に計測系を外す |
+| `finish` | 最終計測前に計測系を外す（=`fleet-disable`） |
 
 ## 構成
 
@@ -91,7 +90,7 @@ Makefile
     │   │   ├── app/      # packages, systemd, build, restart, deploy, pprof
     │   │   ├── nginx/    # packages, alp, configure, site, restart
     │   │   ├── db/       # packages, performance, restart, slow-query
-    │   │   ├── monitor/  # toggle（netdata + slow query）
+    │   │   ├── monitor/  # toggle（netdata + slow query + pprof）
     │   │   └── bench/    # prepare, measure, analyze-*
     │   ├── templates/
     │   └── files/        # GitHub SSH 鍵（gitignore）
