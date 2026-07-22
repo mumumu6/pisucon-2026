@@ -1,5 +1,6 @@
 ---
 # monitor_state: on | off
+# pprof はサーバー上だけで出し入れ（git には触らない）
 - name: 計測系を切り替える
   hosts: all
   gather_facts: false
@@ -21,6 +22,9 @@
             --execute={% if monitor_state | bool %}SET GLOBAL long_query_time={{ mysql_slow_query_time }}; SET GLOBAL slow_query_log=1;{% else %}SET GLOBAL slow_query_log=0;{% endif %}
       changed_when: true
       when: inventory_hostname in groups.get('db', [])
+
+    - name: pprof.go を出し入れする
+      ansible.builtin.include_tasks: tasks/common/pprof.yml
 
     - name: アプリをビルドする
       ansible.builtin.include_tasks: tasks/app/build.yml

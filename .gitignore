@@ -2,3 +2,5 @@
 # GitHubデプロイ用秘密鍵（setup.yml が全ホストへ配る。リポジトリには入れない）
 tools/isucon-bench/ansible/files/github_id_ed25519
 tools/isucon-bench/ansible/files/github_id_ed25519.pub
+# 手元の計測 ON/OFF 状態（git には入れない）
+tools/isucon-bench/ansible/.monitor_state

@@ -1,16 +1,9 @@
 ---
-# =============================================================================
-# 大会ごとに書く設定（触るのは主にここ + inventory.yml）
-#
-#   make init-git  … /etc → server-config（種まき）
-#   普段は server-config を編集して push
-#   make deploy    … server-config → /etc + build + restart
-#
-# 言語は Go 固定
-# =============================================================================
+# 大会ごとに書くのはここ + inventory.yml だけ。
+# 言語は Go 固定。
 
-# 開始直後に書く: systemctl list-units --type=service で確認（例: isucondition.go.service）
-app_name: isucondition
+# systemctl list-units --type=service で確認（例: xxx.go.service）
+app_name: CHANGE_ME
 
 deploy_user: isucon
 ansible_user: isucon
@@ -19,18 +12,19 @@ remote_log_root: "{{ remote_project_root }}/log"
 app_working_dir: "{{ remote_project_root }}/webapp/go"
 
 # --- Git / GitHub Issue ---
-git_repository: git@github.com:mumumu6/pisucon-2026.git
+git_repository: git@github.com:YOUR_ORG/YOUR_REPO.git
 git_version: main
-git_user_name: mumumu6
-git_user_email: takumu.sato@gmail.com
-github_repository: mumumu6/pisucon-2026
-create_github_issue: true
+git_user_name: isucon-team
+git_user_email: team@example.com
+github_repository: YOUR_ORG/YOUR_REPO
+# make bench PUBLISH=true / make publish で Issue 化するなら true
+create_github_issue: false
 
 # --- アプリ（Go）---
 build_command: "go build -o {{ app_name }} ."
 app_service: "{{ app_name }}.go.service"
 
-# --- 管理する /etc（ここに書いたものだけ。server-config に無ければ deploy がエラー）---
+# --- 管理する /etc（書いたものだけ。server-config に無ければ deploy がエラー）---
 managed_etc_paths:
   - /etc/nginx/nginx.conf
   - /etc/nginx/sites-enabled
@@ -38,12 +32,12 @@ managed_etc_paths:
   - /etc/systemd/system/{{ app_service }}
   - /etc/systemd/system/nginx.service
 
-# --- pprof ---
+# --- pprof（fleet-enable でサーバー上に配置。git には入れない）---
 pprof_url: http://127.0.0.1:6060/debug/pprof/profile
 pprof_seconds: 75
 
 # =============================================================================
-# 計測・DB・共通（パスやサービス名など。数値チューニングは server-config）
+# 以下はだいたいそのままでよい
 # =============================================================================
 
 repo_root: "{{ playbook_dir }}/../../.."
@@ -57,7 +51,7 @@ fleet_services:
   - name: "{{ mysql_service }}"
     roles: [db]
 
-# GitHub 用 SSH 鍵（デプロイ鍵）。チームで1組あればよい。files/ は gitignore 済み。
+# デプロイ鍵（チームで1組）。files/ は gitignore 済み → 別チャネルで共有
 github_ssh_private_key_src: "{{ playbook_dir }}/files/github_id_ed25519"
 github_ssh_public_key_src: "{{ playbook_dir }}/files/github_id_ed25519.pub"
 github_ssh_identity_file: "/home/{{ deploy_user }}/.ssh/id_ed25519"
@@ -70,30 +64,19 @@ alp_version: "1.0.21"
 access_log: /var/log/nginx/access.log
 access_log_format: ltsv
 
-# --- URI 正規化（回・問題ごとに変える）---
-# alp -m 用マッチンググループ（長いパスを先に）
-alp_matching_groups:
-  - /api/isu/[0-9a-f-]+/icon
-  - /api/isu/[0-9a-f-]+/graph
-  - /api/isu/[0-9a-f-]+
-  - /api/condition/[0-9a-f-]+
-  - /isu/[0-9a-f-]+/condition
-  - /isu/[0-9a-f-]+/graph
-  - /isu/[0-9a-f-]+
-# alp に足す追加オプション（例: ['--qs', '...']）。-m は alp_matching_groups から自動生成
+# 問題の URI に合わせて書く（alp -m）。長いパスを先に
+alp_matching_groups: []
 alp_extra_options: []
 
 mysql_admin_command: mysql
 mysql_service: mariadb
 mysql_slow_query_time: 0
 slow_log: /var/log/mysql/mariadb-slow.log
-# DB 接続（リモート GRANT 用。env.sh の MYSQL_HOST は Ansible では触らない）
 mysql_user: isucon
 mysql_password: isucon
-# リモート GRANT は setup.yml が mysql_user / mysql_password から自動生成
 pt_query_digest_timeout_seconds: 180
 pt_query_digest_options: []
 
-# --- netdata（ライブ確認用。ベンチ結果への集計はしない）---
-netdata_enabled: true
+# 任意。true にすると setup で入れ、fleet-enable で起動
+netdata_enabled: false
 netdata_service: netdata

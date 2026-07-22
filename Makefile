@@ -4,9 +4,9 @@ ANSIBLE_DIR := tools/isucon-bench/ansible
 export ANSIBLE_CONFIG := $(CURDIR)/$(ANSIBLE_DIR)/ansible.cfg
 PLAYBOOK := ansible-playbook -i $(ANSIBLE_DIR)/inventory.yml
 PUBLISH_SCRIPT := tools/isucon-bench/scripts/publish
-PPROF_SCRIPT := tools/isucon-bench/scripts/toggle-pprof
 PPROF_VIEW_SCRIPT := tools/isucon-bench/scripts/serve-pprof
 NETDATA_VIEW_SCRIPT := tools/isucon-bench/scripts/netdata-view
+MONITOR_STATE_FILE := $(ANSIBLE_DIR)/.monitor_state
 BENCH_SESSION ?= $(shell date +%Y%m%d-%H%M%S)
 
 .PHONY: help bootstrap init-git server-sync deploy restart \
@@ -35,13 +35,13 @@ deploy: ## sync + server-config→/etc + build + restart
 restart: ## 全サーバー OS 再起動（追試用）
 	@$(PLAYBOOK) $(ANSIBLE_DIR)/reboot.yml
 
-fleet-enable: ## 計測 ON
-	@$(PPROF_SCRIPT) on
+fleet-enable: ## 計測 ON（pprof / slow log。git には触らない）
+	@echo on > "$(MONITOR_STATE_FILE)"
 	@$(MAKE) --no-print-directory server-sync
 	@$(PLAYBOOK) --extra-vars monitor_state=on $(ANSIBLE_DIR)/monitor.yml
 
 fleet-disable: ## 計測 OFF
-	@$(PPROF_SCRIPT) off
+	@echo off > "$(MONITOR_STATE_FILE)"
 	@$(MAKE) --no-print-directory server-sync
 	@$(PLAYBOOK) --extra-vars monitor_state=off $(ANSIBLE_DIR)/monitor.yml
 

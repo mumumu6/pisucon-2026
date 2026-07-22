@@ -1,11 +1,17 @@
 ---
-# make deploy: sync 済み前提で etc 反映 → build → restart
+# make deploy: sync 済み前提で etc 反映 → pprof 再適用 → build → restart
+# git sync で pprof.go が消えるので、monitor_state に従って毎回出し直す
 - name: 設定反映・ビルド・再起動
   hosts: app:nginx:db
   gather_facts: false
+  vars:
+    monitor_state: "{{ lookup('ansible.builtin.file', playbook_dir + '/.monitor_state', errors='ignore') | default('off', true) | trim }}"
   tasks:
     - name: server-config を /etc へ反映する
       ansible.builtin.include_tasks: tasks/common/apply-etc.yml
+
+    - name: pprof.go を出し入れする
+      ansible.builtin.include_tasks: tasks/common/pprof.yml
 
     - name: アプリをビルドする
       ansible.builtin.include_tasks: tasks/app/build.yml

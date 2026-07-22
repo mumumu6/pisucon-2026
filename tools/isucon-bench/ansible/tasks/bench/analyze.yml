@@ -1,6 +1,12 @@
 ---
 # always 節: 役割別解析 → 生ログ削除
 # --- Nginx / alp ---
+- name: Nginxのaccess log有無を確認する
+  ansible.builtin.stat:
+    path: "{{ access_log }}"
+  register: access_log_stat
+  when: inventory_hostname in groups['nginx']
+
 - name: Nginxのaccess logを計測結果へコピーする
   ansible.builtin.copy:
     src: "{{ access_log }}"
@@ -24,7 +30,9 @@
   register: alp_result
   changed_when: false
   failed_when: false
-  when: inventory_hostname in groups['nginx']
+  when:
+    - inventory_hostname in groups['nginx']
+    - access_log_stat.stat.exists | default(false)
 
 - name: Alp解析結果を保存する
   ansible.builtin.copy:
@@ -34,6 +42,12 @@
   when: inventory_hostname in groups['nginx']
 
 # --- DB / pt-query-digest ---
+- name: MariaDBのスロークエリログ有無を確認する
+  ansible.builtin.stat:
+    path: "{{ slow_log }}"
+  register: slow_log_stat
+  when: inventory_hostname in groups['db']
+
 - name: MariaDBのスロークエリログを計測結果へコピーする
   ansible.builtin.copy:
     src: "{{ slow_log }}"

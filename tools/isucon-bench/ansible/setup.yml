@@ -1,5 +1,6 @@
 ---
-# 初回: apt / DB付帯 / 役割の start|stop。鍵は init-git。etc は make deploy。
+# 初回: 計測ツールのみ導入。nginx / mariadb / go は大会イメージ前提（入れ直さない）。
+# 鍵は init-git。etc は make deploy。
 - name: ISUCON用の計測ツールを導入する
   hosts: all
   become: true
@@ -10,7 +11,7 @@
   tasks:
     - name: 共通パッケージを導入する
       ansible.builtin.apt:
-        name: [curl, git, jq, netdata]
+        name: "{{ ['curl', 'git', 'jq'] + (['netdata'] if (netdata_enabled | bool) else []) }}"
         state: present
         update_cache: true
         update_cache_retries: 5
@@ -21,34 +22,16 @@
       delay: 15
       until: common_packages is succeeded
 
-    - name: アプリ用にGoを導入する
-      when: inventory_hostname in groups['app']
-      ansible.builtin.apt:
-        name: golang-go
-        state: present
-        lock_timeout: 600
-      register: go_packages
-      retries: 40
-      delay: 15
-      until: go_packages is succeeded
-
-    - name: DB用にMariaDBとpt-query-digestを導入する
+    - name: DB用にpt-query-digestを導入する
       when: inventory_hostname in groups['db']
       ansible.builtin.apt:
-        name: [mariadb-server, percona-toolkit]
+        name: [percona-toolkit]
         state: present
         lock_timeout: 600
       register: database_packages
       retries: 40
       delay: 15
       until: database_packages is succeeded
-
-    - name: MariaDBを起動する
-      when: inventory_hostname in groups['db']
-      ansible.builtin.systemd:
-        name: "{{ mysql_service }}"
-        state: started
-        enabled: true
 
     - name: スローログ用の置き場を用意する
       when: inventory_hostname in groups['db']
@@ -78,17 +61,7 @@
       args:
         executable: /bin/bash
       changed_when: true
-
-    - name: Nginxを導入する
-      when: inventory_hostname in groups['nginx']
-      ansible.builtin.apt:
-        name: nginx
-        state: present
-        lock_timeout: 600
-      register: nginx_packages
-      retries: 40
-      delay: 15
-      until: nginx_packages is succeeded
+      failed_when: false
 
     - name: Alpを導入する
       when: inventory_hostname in groups['nginx']

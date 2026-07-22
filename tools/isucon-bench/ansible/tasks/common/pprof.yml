@@ -1,0 +1,19 @@
+---
+# git sync 後にサーバー上だけで pprof.go を出し入れする（commit/push しない）。
+# monitor_state: on|off|true|false
+- name: pprof.go を配置する
+  ansible.builtin.template:
+    src: pprof.go.j2
+    dest: "{{ app_working_dir }}/pprof.go"
+    mode: "0644"
+  when:
+    - inventory_hostname in groups.get('app', [])
+    - monitor_state | bool
+
+- name: pprof.go を削除する
+  ansible.builtin.file:
+    path: "{{ app_working_dir }}/pprof.go"
+    state: absent
+  when:
+    - inventory_hostname in groups.get('app', [])
+    - not (monitor_state | bool)
