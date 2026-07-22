@@ -1,27 +1,28 @@
 #!/usr/bin/env bash
-# サーバーの ~/ で git を初期化し、gitignore のうえ git add → commit → push する。
-# 管理する /etc パスは MANAGED_ETC_PATHS（1行1パス）。repo 上は server-config/etc/... に置く。
-#
-#   --full  初回: init / remote / gitignore / server-config 種まき / add / push
-#
-# 種まきは init-git だけ。deploy は反映のみ。
-# 必須環境変数: GIT_REPOSITORY GIT_VERSION GIT_USER_NAME GIT_USER_EMAIL MANAGED_ETC_PATHS
+# サーバー ~/ を git 初期化し、/etc → server-config 種まき → commit → push
+# 必須: GIT_REPOSITORY GIT_VERSION GIT_USER_NAME GIT_USER_EMAIL MANAGED_ETC_PATHS
 set -euo pipefail
 
-mode="${1:?Usage: $0 --full}"
+[[ "${1:-}" == --full ]] || { echo "Usage: $0 --full" >&2; exit 1; }
+
 ROOT="${INIT_GIT_ROOT:-$HOME}"
-REPO="${GIT_REPOSITORY:?GIT_REPOSITORY is required}"
-BRANCH="${GIT_VERSION:?GIT_VERSION is required}"
-NAME="${GIT_USER_NAME:?GIT_USER_NAME is required}"
-EMAIL="${GIT_USER_EMAIL:?GIT_USER_EMAIL is required}"
-MANAGED_ETC_PATHS="${MANAGED_ETC_PATHS:?MANAGED_ETC_PATHS is required}"
+REPO="${GIT_REPOSITORY:?}"
+BRANCH="${GIT_VERSION:?}"
+NAME="${GIT_USER_NAME:?}"
+EMAIL="${GIT_USER_EMAIL:?}"
+MANAGED_ETC_PATHS="${MANAGED_ETC_PATHS:?}"
 
 cd "$ROOT"
-
 run() { echo "+ $*" >&2; "$@"; }
 
-write_gitignore() {
-  cat >.gitignore <<'EOF'
+[[ -d .git ]] || run git init
+run git config user.name "$NAME"
+run git config user.email "$EMAIL"
+git remote get-url origin >/dev/null 2>&1 \
+  && run git remote set-url origin "$REPO" \
+  || run git remote add origin "$REPO"
+
+cat >.gitignore <<'EOF'
 # histories / caches
 /.*_history
 /.*_logout
@@ -66,84 +67,40 @@ node_modules/
 /webapp/rust/
 /webapp/java/
 EOF
-}
 
-# /etc/foo → server-config/etc/foo
-# 既に種まき済みならスキップ。実体が無ければエラー。
-seed_one() {
-  local listed="$1"
-  local dest="server-config${listed}"
-  local src="$listed"
-
-  [[ -e "$dest" ]] && return 0
-  if [[ ! -e "$src" ]]; then
-    echo "エラー: managed_etc_paths の実体がありません: $listed" >&2
-    echo "  パスを直すか、リストから外してください。" >&2
+mkdir -p server-config
+while IFS= read -r path; do
+  [[ -z "$path" || "$path" == \#* ]] && continue
+  dest="server-config$path"
+  [[ -e "$dest" ]] && continue
+  [[ -e "$path" ]] || {
+    echo "エラー: managed_etc_paths の実体がありません: $path" >&2
     exit 1
-  fi
+  }
 
-  echo "seed $src -> $dest"
-  if [[ -f "$src" ]]; then
-    sudo cp -n "$src" "${src}.orig" 2>/dev/null || true
+  echo "seed $path -> $dest"
+  if [[ -f "$path" ]]; then
+    sudo cp -n "$path" "${path}.orig" 2>/dev/null || true
     mkdir -p "$(dirname "$dest")"
-    sudo cp "$src" "$dest"
+    sudo cp "$path" "$dest"
   else
     mkdir -p "$dest"
-    sudo rsync -a "${src}/" "${dest}/"
+    sudo rsync -a "${path}/" "${dest}/"
   fi
-  sudo chown -R "$(id -u):$(id -g)" "server-config$(dirname "$listed")"
-}
+done <<<"$MANAGED_ETC_PATHS"
+sudo chown -R "$(id -u):$(id -g)" server-config
 
-seed_server_config() {
-  mkdir -p server-config
-  while IFS= read -r path; do
-    [[ -z "$path" || "$path" == \#* ]] && continue
-    seed_one "$path"
-  done <<<"$MANAGED_ETC_PATHS"
-}
+run git add -A
+if git diff --cached --quiet; then
+  echo "git: unchanged"
+else
+  run git status --short
+  run git commit -m "initial: $(hostname) home (+ server-config)"
+fi
 
-ensure_git() {
-  [[ -d .git ]] || run git init
-  run git config user.name "$NAME"
-  run git config user.email "$EMAIL"
-  if git remote get-url origin >/dev/null 2>&1; then
-    run git remote set-url origin "$REPO"
-  else
-    run git remote add origin "$REPO"
-  fi
-}
-
-commit_if_needed() {
-  local msg="$1"
-  run git add -A
-  if git diff --cached --quiet; then
-    echo "git: unchanged"
-  else
-    run git status --short
-    run git commit -m "$msg"
-  fi
-}
-
-push_branch() {
-  # リモートにブランチがあるときだけ pull（空 repo への初回 push を通す）
-  if git ls-remote --exit-code origin "refs/heads/$BRANCH" >/dev/null 2>&1; then
-    run git pull origin "$BRANCH" --allow-unrelated-histories --no-edit
-  fi
-  run git push -u origin "HEAD:refs/heads/$BRANCH"
-}
-
-case "$mode" in
-  --full)
-    ensure_git
-    write_gitignore
-    seed_server_config
-    commit_if_needed "initial: $(hostname) home (+ server-config)"
-    push_branch
-    ;;
-  *)
-    echo "Usage: $0 --full" >&2
-    exit 1
-    ;;
-esac
-
-echo "done ($mode)."
+# リモートにブランチがあるときだけ pull（空 repo への初回 push を通す）
+if git ls-remote --exit-code origin "refs/heads/$BRANCH" >/dev/null 2>&1; then
+  run git pull origin "$BRANCH" --allow-unrelated-histories --no-edit
+fi
+run git push -u origin "HEAD:refs/heads/$BRANCH"
+echo "done."
