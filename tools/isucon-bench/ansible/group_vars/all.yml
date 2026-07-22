@@ -2,9 +2,10 @@
 # =============================================================================
 # 大会ごとに書き換える設定（別回の ISUCON では主にここを変える）
 # nginx / MariaDB の設定値は server-config/（make bootstrap が取り込み、git 管理）を直接編集する
+# 言語は Go 固定（webapp/go、*.go.service）
 # =============================================================================
 
-# アプリの識別名。サービス名・socket・nginx conf 名などの組み立て元。
+# 開始直後に書く: systemctl list-units --type=service で確認（例: isucondition.go.service）
 app_name: isucondition
 
 deploy_user: isucon
@@ -21,8 +22,14 @@ git_user_name: mumumu6
 git_user_email: takumu.sato@gmail.com
 github_repository: mumumu6/pisucon-2026
 create_github_issue: true
+# config-pull がサーバーから取るパス（手元に webapp/go が無いとき）
+project_seed_paths:
+  - webapp/go
+  - webapp/sql
+  - webapp/frontend
+  - env.sh
 
-# --- アプリ ---
+# --- アプリ（Go）---
 build_command: "go build -o {{ app_name }} ."
 app_service: "{{ app_name }}.go.service"
 app_runtime_directory: "{{ app_name }}"
@@ -36,7 +43,7 @@ nginx_sites_dir: /etc/nginx/sites-enabled
 
 # --- pprof ---
 pprof_filename: pprof.go
-local_pprof_relative: webapp/go/pprof.go
+local_pprof_relative: "webapp/go/{{ pprof_filename }}"
 pprof_url: http://127.0.0.1:6060/debug/pprof/profile
 pprof_seconds: 75
 pprof_view_port: 6070

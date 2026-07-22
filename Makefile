@@ -16,12 +16,12 @@ BENCH_SESSION ?= $(shell date +%Y%m%d-%H%M%S)
 help: ## Makeターゲットと用途を表示する
 	@awk 'BEGIN { FS = ":.*## "; printf "Usage: make <target> [OPTION=value]\n\n" } /^[a-zA-Z0-9_-]+:.*## / { printf "  %-18s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
-bootstrap: ## サーバー設定の取り込み(git管理) + 計測ツール導入 + 計測系 ON
+bootstrap: ## etc/webapp 取り込み(git) + 計測ツール導入 + 計測系 ON
 	@$(MAKE) --no-print-directory config-pull
 	@$(PLAYBOOK) $(ANSIBLE_DIR)/setup.yml
 	@$(MAKE) --no-print-directory fleet-enable
 
-config-pull: ## サーバーの素の設定を server-config/ へ取り込み commit/push する
+config-pull: ## サーバーの素の etc + webapp/env を取り込み commit/push する
 	@$(PLAYBOOK) $(ANSIBLE_DIR)/config-pull.yml
 
 server-sync: ## GitHubの指定ブランチを全サーバーへ同期する

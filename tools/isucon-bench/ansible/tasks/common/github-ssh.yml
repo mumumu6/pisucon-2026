@@ -44,13 +44,20 @@
     group: "{{ deploy_user }}"
     mode: "0644"
 
-- name: GitHub用SSH configを配置する
-  ansible.builtin.template:
-    src: templates/ssh-github.config.j2
-    dest: "/home/{{ deploy_user }}/.ssh/config"
+- name: GitHub用SSH configを追記する（既存の Host は消さない）
+  ansible.builtin.blockinfile:
+    path: "/home/{{ deploy_user }}/.ssh/config"
+    create: true
     owner: "{{ deploy_user }}"
     group: "{{ deploy_user }}"
     mode: "0644"
+    marker: "# {mark} ANSIBLE MANAGED github.com"
+    block: |
+      Host github.com
+        HostName github.com
+        User git
+        IdentityFile {{ github_ssh_identity_file }}
+        IdentitiesOnly yes
 
 - name: github.comをknown_hostsへ登録する
   ansible.builtin.blockinfile:

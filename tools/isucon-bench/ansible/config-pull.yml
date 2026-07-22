@@ -1,11 +1,12 @@
 ---
-# make bootstrap の最初に呼ぶ。サーバーの素の設定を repo の server-config/ へ取り込み、
-# files/wiring/ の配線・チューニング候補を書き足して commit / push する。
-# 取り込み済みのファイルには一切触らない（手元の編集を上書きしない）。
+# make bootstrap の最初に呼ぶ。サーバーの素を repo へ取り込み commit / push する。
+# 取り込み済みなら触らない。壊れたら手で rsync / scp して git add すればよい。
 #
-# git 履歴: 「素の状態」→「計測の配線」の2コミットが積まれる。
-# 以後は server-config/ を直接編集し make deploy / make mysql-tune で反映する。
-# 初回追記の中身を変えたいときは files/wiring/ を編集する。
+#   rsync -a isucon@<app>:~/webapp/go/ ./webapp/go/ --exclude node_modules --exclude <app_name>
+#   rsync -a isucon@<app>:~/webapp/sql/ ./webapp/sql/
+#   rsync -a isucon@<app>:~/webapp/frontend/ ./webapp/frontend/ --exclude node_modules
+#   scp isucon@<app>:~/env.sh ./env.sh
+#
 - name: Nginx設定を取り込む
   hosts: nginx[0]
   become: true
@@ -18,7 +19,7 @@
       become: false
       register: pulled_nginx_conf
 
-    - name: nginx.conf とサイト設定を取り込む
+    - name: nginx.conf / サイト / drop-in を取り込む
       when: not pulled_nginx_conf.stat.exists
       block:
         - name: サーバー側に .orig を残す
@@ -29,75 +30,93 @@
             force: false
             mode: preserve
 
-        - name: nginx.conf を手元へ取得する
+        - name: 手元の置き場を作る
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: directory
+          loop:
+            - "{{ server_config_root }}/sites"
+            - "{{ server_config_root }}/systemd"
+          delegate_to: localhost
+          become: false
+
+        - name: nginx.conf を取る
           ansible.builtin.fetch:
             src: "{{ nginx_conf_dest }}"
             dest: "{{ server_config_root }}/nginx.conf"
             flat: true
 
-        - name: サイト設定を探す
-          ansible.builtin.find:
-            paths: "{{ nginx_sites_dir }}"
-            file_type: any
-          register: nginx_site_files
+        - name: サイト設定を取る
+          ansible.posix.synchronize:
+            mode: pull
+            src: "{{ nginx_sites_dir }}/"
+            dest: "{{ server_config_root }}/sites/"
+            archive: true
 
-        - name: サイト設定を手元へ取得する
-          ansible.builtin.fetch:
-            src: "{{ item.path }}"
-            dest: "{{ server_config_root }}/sites/{{ item.path | basename }}"
-            flat: true
-          loop: "{{ nginx_site_files.files }}"
-          loop_control:
-            label: "{{ item.path }}"
-
-    - name: nginx systemd drop-in の取り込み済みか確認する
-      ansible.builtin.stat:
-        path: "{{ server_config_root }}/systemd/nginx.override.conf"
-      delegate_to: localhost
-      become: false
-      register: pulled_nginx_override
-
-    - name: nginx systemd drop-in を取り込む（サーバーにあるときだけ。無ければ作らない）
-      when: not pulled_nginx_override.stat.exists
-      block:
-        - name: サーバー上の有無を確認する
+        - name: drop-in があれば取る
           ansible.builtin.stat:
             path: /etc/systemd/system/nginx.service.d/override.conf
           register: remote_nginx_override
 
-        - name: nginx systemd drop-in を手元へ取得する
+        - name: nginx drop-in を取る
           ansible.builtin.fetch:
             src: /etc/systemd/system/nginx.service.d/override.conf
             dest: "{{ server_config_root }}/systemd/nginx.override.conf"
             flat: true
           when: remote_nginx_override.stat.exists | default(false)
 
-- name: アプリ systemd drop-in を取り込む
+- name: アプリ設定と webapp を取り込む
   hosts: app[0]
-  become: true
+  become: false
   gather_facts: false
   tasks:
-    - name: 取り込み済みか確認する
+    - name: app drop-in 取り込み済みか確認する
       ansible.builtin.stat:
         path: "{{ server_config_root }}/systemd/app.override.conf"
       delegate_to: localhost
-      become: false
       register: pulled_app_override
 
-    - name: アプリ systemd drop-in を取り込む（サーバーにあるときだけ。無ければ作らない）
+    - name: app drop-in があれば取る
       when: not pulled_app_override.stat.exists
       block:
-        - name: サーバー上の有無を確認する
+        - name: 有無を確認する
           ansible.builtin.stat:
             path: "/etc/systemd/system/{{ app_service }}.d/override.conf"
+          become: true
           register: remote_app_override
 
-        - name: アプリ systemd drop-in を手元へ取得する
+        - name: 置き場を作る
+          ansible.builtin.file:
+            path: "{{ server_config_root }}/systemd"
+            state: directory
+          delegate_to: localhost
+          when: remote_app_override.stat.exists | default(false)
+
+        - name: drop-in を取る
           ansible.builtin.fetch:
             src: "/etc/systemd/system/{{ app_service }}.d/override.conf"
             dest: "{{ server_config_root }}/systemd/app.override.conf"
             flat: true
+          become: true
           when: remote_app_override.stat.exists | default(false)
+
+    - name: webapp 取り込み済みか確認する
+      ansible.builtin.stat:
+        path: "{{ repo_root }}/webapp/go"
+      delegate_to: localhost
+      register: pulled_webapp
+
+    - name: webapp/go・sql・frontend と env.sh を rsync する
+      when: not pulled_webapp.stat.exists
+      ansible.posix.synchronize:
+        mode: pull
+        src: "{{ remote_project_root }}/{{ item }}"
+        dest: "{{ repo_root }}/{{ item }}"
+        archive: true
+        rsync_opts:
+          - "--exclude=node_modules"
+          - "--exclude={{ app_name }}"
+      loop: "{{ project_seed_paths }}"
 
 - name: MariaDB設定を取り込む
   hosts: db[0]
@@ -122,21 +141,30 @@
             force: false
             mode: preserve
 
-        - name: DB cnf を手元へ取得する
+        - name: 置き場を作る
+          ansible.builtin.file:
+            path: "{{ server_config_root }}"
+            state: directory
+          delegate_to: localhost
+          become: false
+
+        - name: cnf を取る
           ansible.builtin.fetch:
             src: "{{ mysql_server_cnf }}"
             dest: "{{ mysql_cnf_local }}"
             flat: true
 
-- name: 配線を書き足して commit する
-  hosts: nginx[0]
+- name: 配線を書いて commit / push する
+  hosts: localhost
+  connection: local
   gather_facts: false
   become: false
   vars:
-    nginx_pulled_now: "{{ not pulled_nginx_conf.stat.exists }}"
-    mysql_pulled_now: "{{ not hostvars[groups['db'][0]].pulled_mysql_cnf.stat.exists }}"
+    nginx_pulled_now: "{{ not (hostvars[groups['nginx'][0]].pulled_nginx_conf.stat.exists | default(true)) }}"
+    mysql_pulled_now: "{{ not (hostvars[groups['db'][0]].pulled_mysql_cnf.stat.exists | default(true)) }}"
+    webapp_pulled_now: "{{ not (hostvars[groups['app'][0]].pulled_webapp.stat.exists | default(true)) }}"
   tasks:
-    - name: 素の状態を commit する
+    - name: 素の server-config を commit する
       ansible.builtin.shell: |
         set -euo pipefail
         cd "{{ repo_root }}"
@@ -149,63 +177,55 @@
         fi
       args:
         executable: /bin/bash
-      delegate_to: localhost
       register: pristine_commit
       changed_when: "'committed' in pristine_commit.stdout"
 
-    - name: nginx.conf に配線を書き足す
+    - name: nginx.conf に配線を書く
       when: nginx_pulled_now | bool
-      delegate_to: localhost
       block:
-        - name: ltsv 設定の有無を確認する
+        - name: ltsv の有無
           ansible.builtin.command:
             argv: [grep, -q, "log_format ltsv", "{{ server_config_root }}/nginx.conf"]
           register: nginx_ltsv_check
           changed_when: false
           failed_when: nginx_ltsv_check.rc not in [0, 1]
 
-        - name: 配線とチューニング候補を書き足す
+        - name: 配線とチューニング候補を追記する
           when: nginx_ltsv_check.rc != 0
           vars:
             wiring_dir: "{{ playbook_dir }}/files/wiring"
           block:
-            - name: 全体チューニング候補を追記する
-              ansible.builtin.blockinfile:
+            - ansible.builtin.blockinfile:
                 path: "{{ server_config_root }}/nginx.conf"
                 marker: "# {mark} isucon-bench: main"
                 insertbefore: '^events\s*\{'
                 block: "{{ lookup('file', wiring_dir ~ '/nginx-main.conf') }}"
 
-            - name: events チューニング候補を追記する
-              ansible.builtin.blockinfile:
+            - ansible.builtin.blockinfile:
                 path: "{{ server_config_root }}/nginx.conf"
                 marker: "    # {mark} isucon-bench: events"
                 insertafter: '^events\s*\{'
                 block: "{{ lookup('file', wiring_dir ~ '/nginx-events.conf') | indent(4, true) }}"
 
-            - name: ltsv 配線と http チューニング候補を追記する
-              ansible.builtin.blockinfile:
+            - ansible.builtin.blockinfile:
                 path: "{{ server_config_root }}/nginx.conf"
                 marker: "    # {mark} isucon-bench: http"
                 insertafter: '^http\s*\{'
                 block: "{{ lookup('template', wiring_dir ~ '/nginx-http.conf.j2') | indent(4, true) }}"
 
-            - name: access_log を ltsv 形式にする
-              ansible.builtin.replace:
+            - ansible.builtin.replace:
                 path: "{{ server_config_root }}/nginx.conf"
-                # 「access_log <パス>;」「access_log <パス> main;」の両方を ltsv に置き換える
                 regexp: '^(\s*access_log\s+{{ access_log | regex_escape() }})(\s+\w+)?\s*;'
                 replace: '\1 ltsv;'
 
-    - name: DB cnf に配線を書き足す
+    - name: DB cnf に配線を書く
       when: mysql_pulled_now | bool
-      delegate_to: localhost
       ansible.builtin.blockinfile:
         path: "{{ mysql_cnf_local }}"
         marker: "# {mark} isucon-bench"
         block: "{{ lookup('template', playbook_dir ~ '/files/wiring/mysql.cnf.j2') }}"
 
-    - name: 配線を commit して push する
+    - name: server-config を commit する
       ansible.builtin.shell: |
         set -euo pipefail
         cd "{{ repo_root }}"
@@ -216,9 +236,35 @@
           git commit -m "server-config: 計測用の配線とチューニング候補を追記" -- server-config
           echo committed
         fi
-        git push || echo "[warn] git push に失敗しました。手動で push してください。"
       args:
         executable: /bin/bash
-      delegate_to: localhost
       register: wiring_commit
       changed_when: "'committed' in wiring_commit.stdout"
+
+    - name: webapp を commit する
+      when: webapp_pulled_now | bool
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cd "{{ repo_root }}"
+        git add -A -- {{ project_seed_paths | map('quote') | join(' ') }}
+        if git diff --cached --quiet; then
+          echo unchanged
+        else
+          git commit -m "project: サーバーの素の webapp / env を取り込み"
+          echo committed
+        fi
+      args:
+        executable: /bin/bash
+      register: project_commit
+      changed_when: "'committed' in project_commit.stdout"
+
+    - name: push する
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cd "{{ repo_root }}"
+        git push origin "{{ git_version }}" \
+          || git push "{{ git_repository }}" "HEAD:refs/heads/{{ git_version }}" \
+          || echo "[warn] git push に失敗しました。手動で push してください。"
+      args:
+        executable: /bin/bash
+      changed_when: false

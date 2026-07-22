@@ -6,13 +6,18 @@ set -Eeuo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 vars="$root/tools/isucon-bench/ansible/group_vars/all.yml"
 template="$root/tools/isucon-bench/ansible/templates/pprof.go.j2"
-rel="webapp/go/pprof.go"
 state="${1:-}"
 
-if [[ -f "$vars" ]]; then
-  v="$(sed -nE 's/^local_pprof_relative:[[:space:]]*([^#[:space:]]+).*/\1/p' "$vars" | head -1)"
-  [[ -n "$v" ]] && rel="$v"
-fi
+read_var() {
+  local key="$1"
+  [[ -f "$vars" ]] || return 0
+  sed -nE "s/^${key}:[[:space:]]*\"?([^\"#[:space:]]+)\"?.*/\1/p" "$vars" | head -1
+}
+
+pprof_filename="$(read_var pprof_filename)"
+[[ -z "$pprof_filename" ]] && pprof_filename=pprof.go
+
+rel="webapp/go/${pprof_filename}"
 target="$root/$rel"
 
 case "$state" in
