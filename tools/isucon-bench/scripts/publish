@@ -22,7 +22,8 @@ inv_json="$(ansible-inventory -i "$inventory" --list)"
 reporter="$(jq -er '.reporter.hosts | select(length==1) | .[0]' <<<"$inv_json")" \
   || { echo "inventory の reporter はちょうど1台にしてください" >&2; exit 1; }
 vars="$(jq -c --arg h "$reporter" '._meta.hostvars[$h]' <<<"$inv_json")"
-repo="$(jq -r '.github_repository // empty' <<<"$vars")"
+repo="$(jq -er '.github_repository' <<<"$vars")" \
+  || { echo "github_repository を group_vars に書いてください" >&2; exit 1; }
 [[ "$(jq -r '.create_github_issue // true' <<<"$vars")" == true ]] \
   || { echo "create_github_issue=false のためスキップ"; exit 0; }
 
@@ -48,9 +49,7 @@ if (( $(wc -c <"$report") > max_bytes )); then
 fi
 
 title="ISUCON benchmark $(basename "$session")"
-gh_args=(issue create --title "$title" --body-file "$body")
-[[ -n "$repo" ]] && gh_args+=(--repo "$repo")
-issue_url="$(gh "${gh_args[@]}")"
+issue_url="$(gh issue create --repo "$repo" --title "$title" --body-file "$body")"
 
 # 本文が切れたときだけ、各ホストの解析テキストをコメントで追記
 if [[ "$truncated" == true ]]; then

@@ -1,38 +1,29 @@
 ---
 # monitor_state: on | off
-# netdata / slow query を切り替える。
-# pprof.go は make 側の toggle-pprof → server-sync で置く前提。ここではビルドして反映する。
 - name: 計測系を切り替える
   hosts: all
   gather_facts: false
-  pre_tasks:
-    - name: monitor_state を検証する
-      ansible.builtin.assert:
-        that: >-
-          (monitor_state | string | lower) in
-          ['on', 'off', 'true', 'false', 'yes', 'no', '1', '0']
-        fail_msg: "monitor_state must be on/off (string or bool)"
-      run_once: true
-
   tasks:
     - name: Netdataを制御する
+      become: true
       ansible.builtin.systemd:
         name: "{{ netdata_service }}"
         state: "{{ 'started' if monitor_state | bool else 'stopped' }}"
         enabled: "{{ monitor_state | bool }}"
-      become: true
       when: netdata_enabled | bool
 
     - name: スロークエリログを制御する
+      become: true
       ansible.builtin.command:
         argv:
           - "{{ mysql_admin_command }}"
           - >-
             --execute={% if monitor_state | bool %}SET GLOBAL long_query_time={{ mysql_slow_query_time }}; SET GLOBAL slow_query_log=1;{% else %}SET GLOBAL slow_query_log=0;{% endif %}
-      become: true
       changed_when: true
       when: inventory_hostname in groups.get('db', [])
 
-    - name: pprof反映のためアプリをビルドして再起動する
+    - name: アプリをビルドする
       ansible.builtin.include_tasks: tasks/app/build.yml
-      when: inventory_hostname in groups.get('app', [])
+
+    - name: サービスを再起動する
+      ansible.builtin.include_tasks: tasks/common/restart.yml

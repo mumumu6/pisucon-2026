@@ -1,13 +1,9 @@
 ---
-# アプリのビルド → 再起動（deploy / bench / pprof 共通）
 - name: アプリをビルドする
   ansible.builtin.command:
     argv: [/bin/bash, -lc, "{{ build_command }}"]
     chdir: "{{ app_working_dir }}"
   changed_when: true
-  when: build_command | length > 0
-
-- name: アプリを再起動する
-  ansible.builtin.include_tasks: tasks/common/services-restart.yml
-  vars:
-    service: app
+  when:
+    - inventory_hostname in groups['app']
+    - build_command | length > 0

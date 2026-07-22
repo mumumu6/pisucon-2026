@@ -9,53 +9,51 @@ PPROF_VIEW_SCRIPT := tools/isucon-bench/scripts/serve-pprof
 NETDATA_VIEW_SCRIPT := tools/isucon-bench/scripts/netdata-view
 BENCH_SESSION ?= $(shell date +%Y%m%d-%H%M%S)
 
-.PHONY: help bootstrap config-pull server-sync deploy restart \
-	mysql-tune collect pprof-view netdata-view \
+.PHONY: help bootstrap init-git server-sync deploy restart \
+	collect pprof-view netdata-view \
 	fleet-enable fleet-disable finish publish bench get-log-detail
 
 help: ## Makeターゲットと用途を表示する
 	@awk 'BEGIN { FS = ":.*## "; printf "Usage: make <target> [OPTION=value]\n\n" } /^[a-zA-Z0-9_-]+:.*## / { printf "  %-18s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
-bootstrap: ## etc/webapp 取り込み(git) + 計測ツール導入 + 計測系 ON
-	@$(MAKE) --no-print-directory config-pull
+bootstrap: ## 初回: git化 + ツール導入 + deploy + 計測ON
+	@$(MAKE) --no-print-directory init-git
 	@$(PLAYBOOK) $(ANSIBLE_DIR)/setup.yml
+	@$(MAKE) --no-print-directory deploy
 	@$(MAKE) --no-print-directory fleet-enable
 
-config-pull: ## サーバーの素の etc + webapp/env を取り込み commit/push する
-	@$(PLAYBOOK) $(ANSIBLE_DIR)/config-pull.yml
+init-git: ## サーバーで git 化、/etc → server-config 種まき
+	@$(PLAYBOOK) $(ANSIBLE_DIR)/init-git.yml
 
-server-sync: ## GitHubの指定ブランチを全サーバーへ同期する
+server-sync: ## GitHub → 全サーバー
 	@$(PLAYBOOK) $(ANSIBLE_DIR)/git.yml
 
-deploy: ## server-sync + systemd/ビルド/nginx(server-config) 反映
+deploy: ## sync + server-config→/etc + build + restart
 	@$(MAKE) --no-print-directory server-sync
 	@$(PLAYBOOK) $(ANSIBLE_DIR)/deploy.yml
 
-restart: ## 全サーバーを OS 再起動する（追試用）
+restart: ## 全サーバー OS 再起動（追試用）
 	@$(PLAYBOOK) $(ANSIBLE_DIR)/reboot.yml
 
-fleet-enable: ## 計測系 ON（pprof.go → sync → netdata/slow query/ビルド）
+fleet-enable: ## 計測 ON
 	@$(PPROF_SCRIPT) on
 	@$(MAKE) --no-print-directory server-sync
 	@$(PLAYBOOK) --extra-vars monitor_state=on $(ANSIBLE_DIR)/monitor.yml
 
-fleet-disable: ## 計測系 OFF
+fleet-disable: ## 計測 OFF
 	@$(PPROF_SCRIPT) off
 	@$(MAKE) --no-print-directory server-sync
 	@$(PLAYBOOK) --extra-vars monitor_state=off $(ANSIBLE_DIR)/monitor.yml
 
-finish: fleet-disable ## 最終計測前に計測系を外す（= fleet-disable）
+finish: fleet-disable ## 最終前に計測 OFF
 
-mysql-tune: ## MariaDB設定(server-config)を反映する
-	@$(PLAYBOOK) $(ANSIBLE_DIR)/mysql.yml
-
-pprof-view: ## CPUプロファイルをlocalhostで開く。例: make pprof-view SESSION=...
+pprof-view: ## CPUプロファイルを開く。例: make pprof-view SESSION=...
 	@$(PPROF_VIEW_SCRIPT) "$(SESSION)"
 
-netdata-view: ## NetdataへSSHトンネル。例: make netdata-view HOST=all
-	@$(NETDATA_VIEW_SCRIPT) "$(HOST)"
+netdata-view: ## Netdata を SSH トンネルで開く
+	@$(NETDATA_VIEW_SCRIPT)
 
-bench: ## 計測・解析・回収。Issue投稿: make bench PUBLISH=true
+bench: ## 計測・解析・回収。Issue: make bench PUBLISH=true
 	@$(MAKE) --no-print-directory server-sync
 	@status=0; \
 	$(PLAYBOOK) --extra-vars "session_id=$(BENCH_SESSION) requested_session=$(BENCH_SESSION)" $(ANSIBLE_DIR)/bench.yml || status=$$?; \
@@ -64,11 +62,11 @@ bench: ## 計測・解析・回収。Issue投稿: make bench PUBLISH=true
 	$(MAKE) --no-print-directory pprof-view SESSION=$(BENCH_SESSION); \
 	if [ "$(PUBLISH)" = true ]; then $(PUBLISH_SCRIPT) "$(BENCH_SESSION)"; fi
 
-collect: ## ベンチ結果だけ再取得。例: make collect SESSION=...
+collect: ## 結果だけ再取得。例: make collect SESSION=...
 	@$(PLAYBOOK) $(if $(SESSION),--extra-vars "requested_session=$(SESSION)") $(ANSIBLE_DIR)/collect.yml
 
-get-log-detail: ## 詳細ログを手元へ。次のbench前に。例: make get-log-detail / SESSION=20260719-123000
+get-log-detail: ## 詳細ログを手元へ。例: make get-log-detail SESSION=...
 	@$(PLAYBOOK) --extra-vars "requested_session=$(SESSION) raw_log_id=$(or $(SESSION),$(shell date +%Y%m%d-%H%M%S))" $(ANSIBLE_DIR)/fetch-logs.yml
 
-publish: ## 取得済み結果からGitHub Issueを作る。例: make publish DIR=...
+publish: ## Issue 作成。例: make publish DIR=...
 	@$(PUBLISH_SCRIPT) "$(DIR)"

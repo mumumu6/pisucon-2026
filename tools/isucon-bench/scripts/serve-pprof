@@ -2,21 +2,14 @@
 # 手元の cpu.pprof を go tool pprof の Web UI で開く。
 # 使い方: serve-pprof [SESSION_ID]
 #   省略時は log/ 配下の最新 cpu.pprof
-set -Eeuo pipefail
+# ポートは PPROF_VIEW_PORT（既定 6070）。group_vars の pprof_view_port とは別（環境変数優先）。
+set -euo pipefail
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-vars="$root/tools/isucon-bench/ansible/group_vars/all.yml"
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
 session="${1:-}"
 dir="$root/log${session:+/$session}"
 port="${PPROF_VIEW_PORT:-6070}"
 log="$root/log/.pprof-view.log"
-pidf="$root/log/.pprof-view.pid"
-
-# group_vars に pprof_view_port があればそれを使う
-if [[ -f "$vars" ]]; then
-  v="$(sed -nE 's/^pprof_view_port:[[:space:]]*([0-9]+).*/\1/p' "$vars" | head -1)"
-  [[ -n "$v" ]] && port="$v"
-fi
 
 [[ -d "$dir" ]] || { echo "ディレクトリがありません: $dir" >&2; exit 1; }
 profile="$(find "$dir" -type f -name cpu.pprof -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
@@ -27,11 +20,10 @@ pkill -f "pprof -http=:${port}" 2>/dev/null || true
 
 mkdir -p "$root/log"
 setsid go tool pprof -http=":${port}" -no_browser "$profile" >"$log" 2>&1 </dev/null &
-echo $! >"$pidf"
 
 # 起動待ち（最大約2秒）
 for _ in {1..20}; do
-  if ss -ltn 2>/dev/null | grep -qE "127\\.0\\.0\\.1:${port}|\\[::1\\]:${port}|\\*:${port}"; then
+  if ss -ltn 2>/dev/null | grep -qE ":${port}\\s"; then
     echo "http://localhost:${port}  ← $profile"
     exit 0
   fi

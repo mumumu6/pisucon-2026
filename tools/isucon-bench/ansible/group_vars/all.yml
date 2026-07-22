@@ -1,8 +1,12 @@
 ---
 # =============================================================================
-# 大会ごとに書き換える設定（別回の ISUCON では主にここを変える）
-# nginx / MariaDB の設定値は server-config/（make bootstrap が取り込み、git 管理）を直接編集する
-# 言語は Go 固定（webapp/go、*.go.service）
+# 大会ごとに書く設定（触るのは主にここ + inventory.yml）
+#
+#   make init-git  … /etc → server-config（種まき）
+#   普段は server-config を編集して push
+#   make deploy    … server-config → /etc + build + restart
+#
+# 言語は Go 固定
 # =============================================================================
 
 # 開始直後に書く: systemctl list-units --type=service で確認（例: isucondition.go.service）
@@ -13,7 +17,6 @@ ansible_user: isucon
 remote_project_root: /home/{{ deploy_user }}
 remote_log_root: "{{ remote_project_root }}/log"
 app_working_dir: "{{ remote_project_root }}/webapp/go"
-frontend_public_dir: "{{ remote_project_root }}/webapp/public"
 
 # --- Git / GitHub Issue ---
 git_repository: git@github.com:mumumu6/pisucon-2026.git
@@ -22,40 +25,29 @@ git_user_name: mumumu6
 git_user_email: takumu.sato@gmail.com
 github_repository: mumumu6/pisucon-2026
 create_github_issue: true
-# config-pull がサーバーから取るパス（手元に webapp/go が無いとき）
-project_seed_paths:
-  - webapp/go
-  - webapp/sql
-  - webapp/frontend
-  - env.sh
 
 # --- アプリ（Go）---
 build_command: "go build -o {{ app_name }} ."
 app_service: "{{ app_name }}.go.service"
-app_runtime_directory: "{{ app_name }}"
-app_unix_socket: "/run/{{ app_name }}/{{ app_name }}.sock"
-# nginx と app が別ホストのときアプリが待つ TCP ポート（main.go の SERVER_APP_PORT）
-app_listen_port: 3000
 
-# --- Nginx（中身は server-config/nginx.conf。bootstrap が取り込み、以後 git 管理）---
-nginx_conf_dest: /etc/nginx/nginx.conf
-nginx_sites_dir: /etc/nginx/sites-enabled
+# --- 管理する /etc（ここに書いたものだけ。server-config に無ければ deploy がエラー）---
+managed_etc_paths:
+  - /etc/nginx/nginx.conf
+  - /etc/nginx/sites-enabled
+  - /etc/mysql/mariadb.conf.d/50-server.cnf
+  - /etc/systemd/system/{{ app_service }}
+  - /etc/systemd/system/nginx.service
 
 # --- pprof ---
-pprof_filename: pprof.go
-local_pprof_relative: "webapp/go/{{ pprof_filename }}"
 pprof_url: http://127.0.0.1:6060/debug/pprof/profile
 pprof_seconds: 75
-pprof_view_port: 6070
 
 # =============================================================================
-# 計測・DB・共通（パスやサービス名など。数値チューニングは server-config / files/wiring）
+# 計測・DB・共通（パスやサービス名など。数値チューニングは server-config）
 # =============================================================================
 
 repo_root: "{{ playbook_dir }}/../../.."
 local_log_root: "{{ repo_root }}/log"
-# サーバー設定の実体（bootstrap が取り込み、deploy / mysql-tune が配布する）
-server_config_root: "{{ repo_root }}/server-config"
 
 fleet_services:
   - name: "{{ app_service }}"
@@ -95,13 +87,10 @@ mysql_admin_command: mysql
 mysql_service: mariadb
 mysql_slow_query_time: 0
 slow_log: /var/log/mysql/mariadb-slow.log
-# server-config への取り込み名・配布先（大会でパスが違うときは mysql_server_cnf だけ変える）
-mysql_server_cnf: /etc/mysql/mariadb.conf.d/50-server.cnf
-mysql_cnf_local: "{{ server_config_root }}/{{ mysql_server_cnf | basename }}"
 # DB 接続（リモート GRANT 用。env.sh の MYSQL_HOST は Ansible では触らない）
 mysql_user: isucon
 mysql_password: isucon
-# リモート GRANT は tasks/db/performance.yml が mysql_user / mysql_password から自動生成
+# リモート GRANT は setup.yml が mysql_user / mysql_password から自動生成
 pt_query_digest_timeout_seconds: 180
 pt_query_digest_options: []
 

@@ -1,0 +1,37 @@
+---
+# server-config → /etc。全ホスト同じ内容を配る。
+# 種まきはしない（init-git の仕事）。server-config に無ければエラー。
+# どのサービスを起動するかは inventory の役割（restart / setup）だけ。
+- name: server-config を /etc へ反映する
+  become: true
+  ansible.builtin.shell: |
+    set -euo pipefail
+    root="{{ remote_project_root }}/server-config"
+
+    while IFS= read -r path; do
+      [[ -z "$path" || "$path" == \#* ]] && continue
+      src="${root}${path}"
+      if [[ ! -e "$src" ]]; then
+        echo "エラー: server-config にありません: $path" >&2
+        echo "  make init-git で種まきするか、リストから外してください。" >&2
+        exit 1
+      fi
+      echo "apply $src -> $path"
+      if [[ -d "$src" ]]; then
+        mkdir -p "$path"
+        rsync -a "$src/" "$path/"
+      else
+        mkdir -p "$(dirname "$path")"
+        cp "$src" "$path"
+      fi
+    done <<'EOF'
+    {{ managed_etc_paths | join('\n') }}
+    EOF
+
+    if command -v nginx >/dev/null 2>&1; then
+      nginx -t
+    fi
+    systemctl daemon-reload
+  args:
+    executable: /bin/bash
+  changed_when: true

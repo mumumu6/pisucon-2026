@@ -1,0 +1,24 @@
+---
+# 再起動はここだけ
+- name: MariaDBを再起動する
+  become: true
+  ansible.builtin.systemd:
+    name: "{{ mysql_service }}"
+    state: restarted
+  when: inventory_hostname in groups['db']
+
+- name: アプリを再起動する
+  become: true
+  ansible.builtin.systemd:
+    name: "{{ app_service }}"
+    daemon_reload: true
+    state: restarted
+  when: inventory_hostname in groups['app']
+
+- name: Nginxを再起動する
+  become: true
+  ansible.builtin.systemd:
+    name: nginx
+    daemon_reload: true
+    state: restarted
+  when: inventory_hostname in groups['nginx']

@@ -1,6 +1,5 @@
 ---
-# 役割ごとのセットアップを組み立てる薄い playbook。
-# 実体は tasks/{common,app,nginx,db}/ を参照。
+# 初回: apt / DB付帯 / 役割の start|stop。鍵は init-git。etc は make deploy。
 - name: ISUCON用の計測ツールを導入する
   hosts: all
   become: true
@@ -10,51 +9,96 @@
       aarch64: arm64
   tasks:
     - name: 共通パッケージを導入する
-      tags: [common, packages]
-      ansible.builtin.include_tasks: tasks/common/packages.yml
+      ansible.builtin.apt:
+        name: [curl, git, jq, netdata]
+        state: present
+        update_cache: true
+        update_cache_retries: 5
+        update_cache_retry_max_delay: 12
+        lock_timeout: 600
+      register: common_packages
+      retries: 40
+      delay: 15
+      until: common_packages is succeeded
 
-    - name: GitHub用SSH鍵を配置する
-      tags: [common, github]
-      ansible.builtin.include_tasks: tasks/common/github-ssh.yml
-
-    - name: アプリ役割をセットアップする
-      tags: [app]
+    - name: アプリ用にGoを導入する
       when: inventory_hostname in groups['app']
-      block:
-        - name: アプリ用パッケージを導入する
-          tags: [packages]
-          ansible.builtin.include_tasks: tasks/app/packages.yml
-        - name: アプリのsystemd設定を反映する
-          ansible.builtin.include_tasks: tasks/app/systemd.yml
-          vars:
-            force_daemon_reload: true
+      ansible.builtin.apt:
+        name: golang-go
+        state: present
+        lock_timeout: 600
+      register: go_packages
+      retries: 40
+      delay: 15
+      until: go_packages is succeeded
 
-    - name: DB役割をセットアップする
-      tags: [db]
+    - name: DB用にMariaDBとpt-query-digestを導入する
       when: inventory_hostname in groups['db']
-      block:
-        - name: DB用パッケージを導入する
-          tags: [packages]
-          ansible.builtin.include_tasks: tasks/db/packages.yml
-        - name: MariaDBの設定を反映する
-          tags: [mysql]
-          ansible.builtin.include_tasks: tasks/db/performance.yml
+      ansible.builtin.apt:
+        name: [mariadb-server, percona-toolkit]
+        state: present
+        lock_timeout: 600
+      register: database_packages
+      retries: 40
+      delay: 15
+      until: database_packages is succeeded
 
-    - name: Nginx役割をセットアップする
-      tags: [nginx]
+    - name: MariaDBを起動する
+      when: inventory_hostname in groups['db']
+      ansible.builtin.systemd:
+        name: "{{ mysql_service }}"
+        state: started
+        enabled: true
+
+    - name: スローログ用の置き場を用意する
+      when: inventory_hostname in groups['db']
+      ansible.builtin.file:
+        path: "{{ slow_log | dirname }}"
+        state: directory
+        owner: mysql
+        group: adm
+        mode: "0750"
+
+    - name: スローログファイルを用意する
+      when: inventory_hostname in groups['db']
+      ansible.builtin.file:
+        path: "{{ slow_log }}"
+        state: touch
+        owner: mysql
+        group: adm
+        mode: "0640"
+        modification_time: preserve
+        access_time: preserve
+
+    - name: リモート接続用ユーザーを許可する
+      when: inventory_hostname in groups['db']
+      ansible.builtin.shell: |
+        set -euo pipefail
+        {{ mysql_admin_command }} --execute="CREATE USER IF NOT EXISTS '{{ mysql_user }}'@'%' IDENTIFIED BY '{{ mysql_password }}'; GRANT ALL PRIVILEGES ON *.* TO '{{ mysql_user }}'@'%' WITH GRANT OPTION; FLUSH PRIVILEGES;"
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Nginxを導入する
       when: inventory_hostname in groups['nginx']
-      block:
-        - name: Nginx用パッケージとAlpを導入する
-          tags: [packages, alp]
-          ansible.builtin.include_tasks: tasks/nginx/packages.yml
-        - name: Nginxの設定を反映する
-          ansible.builtin.include_tasks: tasks/nginx/configure.yml
-          vars:
-            nginx_config_scope: full
-            restart_nginx: true
+      ansible.builtin.apt:
+        name: nginx
+        state: present
+        lock_timeout: 600
+      register: nginx_packages
+      retries: 40
+      delay: 15
+      until: nginx_packages is succeeded
+
+    - name: Alpを導入する
+      when: inventory_hostname in groups['nginx']
+      ansible.builtin.unarchive:
+        src: "https://github.com/tkuchiki/alp/releases/download/v{{ alp_version }}/alp_linux_{{ alp_arch_map[ansible_architecture] }}.tar.gz"
+        dest: /usr/local/bin
+        remote_src: true
+        mode: "0755"
 
     - name: 役割に合わせてサービスを起動または停止する
-      tags: [services]
       ansible.builtin.systemd:
         name: "{{ item.name }}"
         state: "{{ 'started' if (item.roles | intersect(group_names) | length) > 0 else 'stopped' }}"

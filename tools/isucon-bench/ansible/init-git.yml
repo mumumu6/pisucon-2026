@@ -1,0 +1,30 @@
+---
+# サーバーの ~/ を git 化し、/etc → server-config 種まき → push。
+# 大会イメージは全台同じなので代表1台で十分。deploy は反映のみ。
+- name: GitHub用SSH鍵を全ホストへ配る
+  hosts: all
+  become: false
+  gather_facts: false
+  tasks:
+    - ansible.builtin.include_tasks: tasks/common/github-ssh.yml
+
+- name: 代表ホストで git init + 種まき + push する
+  hosts: app[0]
+  become: false
+  gather_facts: false
+  tasks:
+    # 手元の scripts/ をサーバーへ送って実行（初回は ~/ に tools/ が無いため）
+    - name: git init / add / push する
+      ansible.builtin.script:
+        cmd: ../scripts/init-git-repo --full
+      args:
+        chdir: "{{ remote_project_root }}"
+      environment:
+        INIT_GIT_ROOT: "{{ remote_project_root }}"
+        GIT_REPOSITORY: "{{ git_repository }}"
+        GIT_VERSION: "{{ git_version }}"
+        GIT_USER_NAME: "{{ git_user_name }}"
+        GIT_USER_EMAIL: "{{ git_user_email }}"
+        MANAGED_ETC_PATHS: "{{ managed_etc_paths | join('\n') }}"
+
+- ansible.builtin.import_playbook: git.yml

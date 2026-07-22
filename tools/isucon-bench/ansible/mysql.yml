@@ -1,8 +1,0 @@
----
-# make mysql-tune 用。性能 cnf だけ反映する。
-- name: Git管理されたMariaDB性能設定を反映する
-  hosts: db
-  become: true
-  tasks:
-    - name: MariaDB性能設定を反映する
-      ansible.builtin.include_tasks: tasks/db/performance.yml

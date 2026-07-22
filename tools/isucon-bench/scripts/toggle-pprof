@@ -1,27 +1,18 @@
 #!/usr/bin/env bash
 # 手元リポジトリの pprof.go を on/off し、そのファイルだけ commit & push する。
 # 使い方: toggle-pprof on|off
-set -Eeuo pipefail
+# fleet-enable / fleet-disable から呼ばれる。
+set -euo pipefail
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-vars="$root/tools/isucon-bench/ansible/group_vars/all.yml"
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
 template="$root/tools/isucon-bench/ansible/templates/pprof.go.j2"
-state="${1:-}"
-
-read_var() {
-  local key="$1"
-  [[ -f "$vars" ]] || return 0
-  sed -nE "s/^${key}:[[:space:]]*\"?([^\"#[:space:]]+)\"?.*/\1/p" "$vars" | head -1
-}
-
-pprof_filename="$(read_var pprof_filename)"
-[[ -z "$pprof_filename" ]] && pprof_filename=pprof.go
-
-rel="webapp/go/${pprof_filename}"
+rel="webapp/go/pprof.go"
 target="$root/$rel"
+state="${1:?usage: $0 on|off}"
 
 case "$state" in
   on)
+    [[ -f "$template" ]] || { echo "missing template: $template" >&2; exit 1; }
     mkdir -p "$(dirname "$target")"
     install -m 0644 "$template" "$target"
     msg="chore: enable pprof"
@@ -36,11 +27,11 @@ case "$state" in
     ;;
 esac
 
-git -C "$root" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1 || [[ -e "$target" ]] || exit 0
 git -C "$root" add --all -- "$rel"
+# 差分が無ければ何もしない
 git -C "$root" diff --cached --quiet -- "$rel" && exit 0
 
 branch="$(git -C "$root" branch --show-current)"
-[[ -n "$branch" ]] || { echo "現在のブランチを取得できません" >&2; exit 1; }
+[[ -n "$branch" ]] || { echo "現在のブランチを取得できません（detached HEAD?）" >&2; exit 1; }
 git -C "$root" commit --only -m "$msg" -- "$rel"
 git -C "$root" push origin "$branch"
